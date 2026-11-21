@@ -7,7 +7,6 @@
 // Composição (como o backdrop.cpp do Shell), recortado com antisserrilhado no mesmo raio que o
 // conteúdo D2D usa. Nada é gravado no sistema: tudo são atributos da própria janela.
 #include "finder.h"
-#include "../comum/squircle.h"  // canto contínuo (o mesmo da WacOSWindow.dll)
 #include <dwmapi.h>
 #include <shlobj.h>
 #include <wincodec.h>
@@ -354,15 +353,38 @@ void tahoe::Capsule(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_
     }
 }
 
-// Canto contínuo da Apple ("squircle"): o mesmo traçado das janelas da WacOSWindow.dll (../comum/squircle.h, corner
-// smoothing de 60%: arco do mesmo raio no meio, entrada suave até 1,6 × raio). Antes: superelipse n = 4 em 1,7 × raio,
-// um pouco mais fechada na quina que as outras janelas (21/11/2026).
+// Canto contínuo da Apple ("squircle"): em cada canto, a curva |x/a|^5 + |y/a|^5 = 1 em vez do arco de
+// círculo, então a curvatura cresce aos poucos a partir da reta (sem o "degrau" do arco). Para o canto
+// ocupar o mesmo espaço visual de um arco de raio r, a = 1,35 r (limitado à metade do lado menor).
 ID2D1PathGeometry* tahoe::Squircle(ID2D1Factory* f, D2D1_RECT_F r, float radius) {
     ID2D1PathGeometry* g = nullptr;
     if (FAILED(f->CreatePathGeometry(&g))) return nullptr;
     ID2D1GeometrySink* sk = nullptr;
     if (FAILED(g->Open(&sk))) { g->Release(); return nullptr; }
-    SqRetangulo(sk, r, std::max(radius, 0.f));
+    // Canto contínuo da Apple: a curva começa antes (1,7 × raio) e é uma superelipse n = 4, o que dá o
+    // tamanho visual de um círculo de ~0,93 × raio com a entrada suave. Antes (n = 5 em 1,35 × raio) o canto
+    // parecia um círculo de ~11 px numa janela de 26 pt: apertado e com degraus.
+    float a = std::min({ radius * 1.7f, (r.right - r.left) / 2, (r.bottom - r.top) / 2 });
+    a = std::max(a, 0.f);
+    const int N = 48;  // segmentos por canto: sem "dentes" na curva
+    // centros dos cantos e sinais (de cima à direita, no sentido horário)
+    struct C { float cx, cy, sx, sy; } cs[4] = {
+        { r.right - a, r.top + a, 1, -1 }, { r.right - a, r.bottom - a, 1, 1 },
+        { r.left + a, r.bottom - a, -1, 1 }, { r.left + a, r.top + a, -1, -1 } };
+    sk->BeginFigure({ r.left + a, r.top }, D2D1_FIGURE_BEGIN_FILLED);
+    for (int k = 0; k < 4; k++) {
+        for (int i = 0; i <= N; i++) {
+            // k=0: de (0,-1) a (1,0); k=1: de (1,0) a (0,1); ... ângulo t vai de 0 a 90 graus
+            float t = 1.5707963f * i / N;
+            // |.|^(2/4): superelipse n = 4. O cosseno de 90° sai -4e-8, e a raiz de um negativo é NaN: a geometria
+            // inteira virava NaN e o recorte da janela escondia todo o conteúdo (Monitor, Ajustes)
+            float u = std::pow(std::max(0.f, std::sin(t)), 0.5f), v = std::pow(std::max(0.f, std::cos(t)), 0.5f);
+            float px, py;
+            if (k == 0) { px = u; py = v; } else if (k == 1) { px = v; py = u; } else if (k == 2) { px = u; py = v; } else { px = v; py = u; }
+            sk->AddLine({ cs[k].cx + cs[k].sx * a * px, cs[k].cy + cs[k].sy * a * py });
+        }
+    }
+    sk->EndFigure(D2D1_FIGURE_END_CLOSED);
     sk->Close(); sk->Release();
     return g;
 }
