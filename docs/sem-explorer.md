@@ -55,7 +55,7 @@ nada é aberto.
 Registro alterado (antes não existia em HKCU; o HKLM continua `explorer.exe`, intocado):
 
 ```
-HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon  Shell = C:\Users\TheoH\Documents\shell-proprio\bin\SequoiaShell.exe
+HKCU\Software\Microsoft\Windows NT\CurrentVersion\Winlogon  Shell = %USERPROFILE%\Documents\shell-proprio\bin\SequoiaShell.exe
 ```
 
 Desfazer (o Explorador volta a ser o shell no próximo login):

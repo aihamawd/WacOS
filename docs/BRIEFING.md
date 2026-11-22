@@ -350,7 +350,7 @@ use `vm-enviar.ps1` + Win+R. Não reinicie nem faça logoff da VM sem avisar o u
 
 ## 12. Tela de logon do Windows (AuthUX) — só na VM
 
-- Projeto `C:\Users\TheoH\Documents\AuthUX` (fork de explorer7-team/AuthUX), `sdk/inc/version.h` com
+- Projeto `%USERPROFILE%\Documents\AuthUX` (fork de explorer7-team/AuthUX), `sdk/inc/version.h` com
   `CONSOLELOGON_FOR_GE` (builds 26100/26120/26200). Build: `MSBuild AuthUX.sln -p:Configuration=Release.GE
   -p:Platform=x64`.
 - Instala trocando 2 valores protegidos: `HKLM\SOFTWARE\Microsoft\WindowsRuntime\ActivatableClassId\

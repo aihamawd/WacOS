@@ -1,5 +1,5 @@
 // Perfil de CPU simples de um processo (para achar o que o Shell gasta parado):
-//   perfil.exe <pid> [segundos]
+//   perfil.exe <pid> [segundos]     (da raiz do repositório: o .pdb fica em bin\obj)
 // A cada ~2 ms suspende as threads que gastaram CPU desde a última olhada, lê a pilha (StackWalk64) e
 // conta por função. Mostra as funções do próprio programa mais vistas (com símbolos do .pdb, se houver)
 // e a pilha completa mais comum.
@@ -35,7 +35,10 @@ int wmain(int argc, wchar_t** argv) {
     g_proc = OpenProcess(PROCESS_ALL_ACCESS, FALSE, pid);
     if (!g_proc) { wprintf(L"sem acesso ao processo\n"); return 1; }
     SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
-    SymInitializeW(g_proc, nullptr, TRUE);
+    // o exe só guarda o nome do .pdb (/PDBALTPATH no build.cmd): procura aqui, em bin\obj e no _NT_SYMBOL_PATH
+    std::wstring busca = L".;bin\\obj";
+    if (const wchar_t* extra = _wgetenv(L"_NT_SYMBOL_PATH")) busca = busca + L";" + extra;
+    SymInitializeW(g_proc, busca.c_str(), TRUE);
     std::map<std::string, int> self, incl, stacks;
     std::map<DWORD, ULONG64> last;
     int samples = 0;

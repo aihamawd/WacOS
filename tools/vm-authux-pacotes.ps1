@@ -1,16 +1,17 @@
 ﻿# Cria um disco de dados (pacotes.vhdx) com as atualizações 26200.9711 e o AuthUX, liga na VM AuthUX-Teste e abre a janela da VM.
 # Uso: powershell -ExecutionPolicy Bypass -File tools\vm-authux-pacotes.ps1   (pede administrador)
-param([switch]$Admin)
+# -Perfil: de quem chamou (elevado com outra conta, o USERPROFILE seria o do administrador)
+param([switch]$Admin, [string]$Perfil = $env:USERPROFILE)
 $root = Split-Path $PSScriptRoot -Parent
 $out  = Join-Path $root 'docs\ultima-execucao-vm.txt'
 $log  = Join-Path $root 'docs\registro-mudancas.txt'
-$uup  = 'C:\Users\TheoH\Downloads\26200.9711_amd64_en-us_professional_85096553_convert\UUPs'
+$uup  = "$Perfil\Downloads\26200.9711_amd64_en-us_professional_85096553_convert\UUPs"
 $nome = 'AuthUX-Teste'
-$vhd  = "C:\Users\TheoH\Hyper-V\$nome\pacotes.vhdx"
+$vhd  = "$Perfil\Hyper-V\$nome\pacotes.vhdx"
 
 if (-not $Admin) {
     Remove-Item $out -ErrorAction SilentlyContinue
-    $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Admin"
+    $p = Start-Process powershell.exe -Verb RunAs -Wait -PassThru -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Admin -Perfil `"$Perfil`""
     exit $p.ExitCode
 }
 
@@ -25,7 +26,7 @@ try {
         foreach ($f in 'Windows11.0-KB5043080-x64.msu', 'Windows11.0-KB5127648-x64.msu', 'Windows11.0-KB5054156-x64.cab') {
             Copy-Item (Join-Path $uup $f) "${l}:\atualizacoes\"
         }
-        Copy-Item 'C:\Users\TheoH\Documents\AuthUX\x64\Release.GE\AuthUX.dll' "${l}:\authux\"
+        Copy-Item "$Perfil\Documents\AuthUX\x64\Release.GE\AuthUX.dll" "${l}:\authux\"
         @'
 @echo off
 rem Rode como administrador DENTRO da VM. Ordem: checkpoint 24H2, cumulativa 26100.9711, habilitação 25H2 (26200).
@@ -47,7 +48,7 @@ pause
     Start-Process vmconnect.exe -ArgumentList "localhost `"$nome`""
     $r += "janela da VM aberta"
     $agora = Get-Date -Format 'yyyy-MM-dd HH:mm'
-    Add-Content $log -Encoding utf8 ("`r`n[$agora] VM ${nome}: disco de dados $vhd (atualizações 26200.9711 + AuthUX.dll) ligado na VM (tools\vm-authux-pacotes.ps1). Só afeta a VM.")
+    Add-Content $log -Encoding utf8 ("`r`n[$agora] VM ${nome}: disco de dados %USERPROFILE%\Hyper-V\$nome\pacotes.vhdx (atualizações 26200.9711 + AuthUX.dll) ligado na VM (tools\vm-authux-pacotes.ps1). Só afeta a VM.")
     ("ok`r`n" + ($r -join "`r`n")) | Set-Content $out -Encoding utf8
 } catch {
     ("erro: $($_.Exception.Message)`r`n" + ($r -join "`r`n")) | Set-Content $out -Encoding utf8

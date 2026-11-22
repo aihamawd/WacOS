@@ -25,6 +25,7 @@ L "versão: $tag ($sha)"
 Set-Content -Encoding utf8 (Join-Path $root 'bin\versao.txt') @($tag, $sha, (Get-Date -Format 'yyyy-MM-dd HH:mm'))
 
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'empacotar.ps1') -SemSistema -SemAjustes *>&1 | ForEach-Object { L "$_" }
+if ($LASTEXITCODE -ne 0) { L 'ERRO: o empacotar.ps1 falhou'; exit 1 }  # senão subia o zip mais recente, de outra rodada
 $zip = Get-ChildItem (Join-Path $root 'dist') -Filter 'WacOS-*.zip' | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $zip) { L 'ERRO: o pacote não foi gerado'; exit 1 }
 

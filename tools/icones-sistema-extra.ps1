@@ -85,6 +85,7 @@ function WriteIni($p, $text, $uni) {
 if ($Desfazer) {
     if (Test-Path $bini) {
         foreach ($it in (Get-Content $bini -Raw -Encoding utf8 | ConvertFrom-Json)) {
+            $it.folder = [Environment]::ExpandEnvironmentVariables($it.folder)  # gravado com %USERPROFILE%
             $p = Join-Path $it.folder 'desktop.ini'
             if ($it.existed) {
                 if (Test-Path $p) { (Get-Item $p -Force).Attributes = 'Normal' }
@@ -146,6 +147,8 @@ else {
         AvisarPasta $f
         Say "$p -> IconResource=$icon"
     }
+    # a lista vai para o GitHub: %USERPROFILE% no lugar do caminho com o nome da conta
+    foreach ($it in $list) { if ($it.folder.StartsWith("$env:USERPROFILE\", 'OrdinalIgnoreCase')) { $it.folder = '%USERPROFILE%' + $it.folder.Substring($env:USERPROFILE.Length) } }
     ConvertTo-Json @($list) -Depth 3 | Set-Content $bini -Encoding utf8
     Add-Content $log -Encoding utf8 ("`r`n[$(Stamp)] desktop.ini das pastas do usuário -> ícones do Mac (tools\icones-sistema-extra.ps1). Cópias originais em docs\backup-desktopini\; desfazer: tools\icones-sistema-extra.ps1 -Desfazer`r`n" + (($lines | % { "    $_" }) -join "`r`n"))
 }

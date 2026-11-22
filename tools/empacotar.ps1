@@ -107,6 +107,25 @@ Copy-Item "$root\LICENSE" "$pkg\LICENSE.txt"  # a licença vai junto com o pacot
 # o instalador único (instalar, atualizar, desinstalar), na raiz do pacote: é o que a pessoa abre
 if (Test-Path "$bin\WacOSSetup.exe") { Copy-Item "$bin\WacOSSetup.exe" "$pkg\WacOSSetup.exe" } else { Write-Host 'faltando: bin\WacOSSetup.exe' }
 if (Test-Path $zip) { Remove-Item $zip }
+
+# nada do pacote leva o nome da conta do Windows (o /DEBUG gravava o caminho do .pdb no WacOSShell.exe):
+# procura em UTF-8 e UTF-16, sem diferenciar maiúsculas; ajustes\ fica de fora (é pessoal, o publicar.ps1 não leva)
+$latin1 = [Text.Encoding]::GetEncoding(28591)  # um byte = um caractere
+$marcas = foreach ($conta in @($env:USERNAME, (Split-Path $env:USERPROFILE -Leaf)) | Select-Object -Unique) {
+    if ($conta) { $latin1.GetString([Text.Encoding]::UTF8.GetBytes($conta)); $latin1.GetString([Text.Encoding]::Unicode.GetBytes($conta)) }
+}
+if (-not $marcas) { throw 'checagem da conta: USERNAME e USERPROFILE vazios' }
+$raizPkg = (Get-Item $pkg).FullName
+$vazou = foreach ($arq in Get-ChildItem $pkg -Recurse -File -Force) {
+    $rel = $arq.FullName.Substring($raizPkg.Length + 1)
+    if ($rel -like 'ajustes\*') { continue }
+    $texto = $latin1.GetString([IO.File]::ReadAllBytes($arq.FullName))
+    foreach ($m in $marcas) { if ($texto.IndexOf($m, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $rel; break } }
+}
+if ($vazou) {
+    Remove-Item $pkg -Recurse -Force
+    throw "pacote cancelado, o nome da conta do Windows aparece em: $($vazou -join ', ')"
+}
 Compress-Archive -Path "$pkg\*" -DestinationPath $zip -CompressionLevel Optimal
 Remove-Item $pkg -Recurse -Force
 "Pronto: $zip ({0:N0} MB)" -f ((Get-Item $zip).Length / 1MB)

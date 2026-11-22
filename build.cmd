@@ -153,8 +153,9 @@ cl %CFLAGS% /Fo:bin\obj\forcar\ src\forcar\main.cpp %RES%\WacOSForceQuit.res /Fe
 if /i "%1"=="apps" exit /b 0
 
 :shell
+rem /PDBALTPATH: o exe guarda so o nome do PDB (o caminho completo tem o nome da conta do Windows)
 rem /Zi + /DEBUG: simbolos em bin\obj\WacOSShell.pdb (perfil de CPU e falhas); /OPT:REF,ICF mantem o exe enxuto
-cl %CFLAGS% /Zi /Fd:bin\obj\shell.pdb src\shell\*.cpp bin\obj\context_menu.obj %RES%\WacOSShell.res /Fe:bin\WacOSShell.exe %LFLAGS% version.lib wlanapi.lib powrprof.lib propsys.lib windowscodecs.lib d3d11.lib dxgi.lib dcomp.lib dxguid.lib /DEBUG /OPT:REF /OPT:ICF /PDB:bin\obj\WacOSShell.pdb || exit /b 1
+cl %CFLAGS% /Zi /Fd:bin\obj\shell.pdb src\shell\*.cpp bin\obj\context_menu.obj %RES%\WacOSShell.res /Fe:bin\WacOSShell.exe %LFLAGS% version.lib wlanapi.lib powrprof.lib propsys.lib windowscodecs.lib d3d11.lib dxgi.lib dcomp.lib dxguid.lib /DEBUG /OPT:REF /OPT:ICF /PDB:bin\obj\WacOSShell.pdb /PDBALTPATH:%%_PDB%% || exit /b 1
 call :setup || exit /b 1
 exit /b 0
 

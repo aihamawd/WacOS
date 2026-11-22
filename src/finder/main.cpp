@@ -3478,7 +3478,7 @@ static std::wstring StatusText() {
     return buf;
 }
 
-// Barra de caminho: "Disco Local (C:) › Users › TheoH › Downloads". Duplo clique num trecho abre a pasta.
+// Barra de caminho: "Disco Local (C:) › Users › <conta> › Downloads". Duplo clique num trecho abre a pasta.
 struct PathSeg { std::wstring label, path; float w = 0; D2D1_RECT_F rect{}; };
 static std::vector<PathSeg> g_pathSegs;
 
@@ -7346,7 +7346,7 @@ static void ApplyLaunch(const Launch& L, int show) {
     }
     if (!L.searchArg.empty()) { g_searchScope = L.searchScope; g_search.SetText(L.searchArg, false); OnSearchChanged(); RunSearch(); }
     // a reserva já tinha desenhado a pasta dela escondida: desenha a pasta pedida ANTES de aparecer (senão
-    // o primeiro quadro na tela era a pasta velha, ex.: "TheoH", e só depois a certa)
+    // o primeiro quadro na tela era a pasta velha, ex.: a pessoal, e só depois a certa)
     Render();
     ShowWindow(g_hwnd, show);
     // sempre na frente e com o teclado (quem pediu está esperando)

@@ -1,97 +1,97 @@
 ﻿2026-11-10 23:44 contÃªiner do Claude (cÃ³pia particular do HKCU): apagadas Directory\shell\arquivos e Drive\shell\arquivos (apontavam para o Arquivos.exe apagado) e o padrÃ£o 'arquivos' das duas. Backup: bin\obj\conteiner-pastas-backup.reg.dir/.drive
 
 [2026-11-11 02:19] Ãcones do Windows trocados pelos do Mac (tools\icones-sistema.ps1). 38 valores no HKCU; valores antigos em docs\backup-icones-sistema.json. Desfazer: powershell -ExecutionPolicy Bypass -File tools\icones-sistema.ps1 -Desfazer
-    HKCU\Software\Classes\Directory\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Folder\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [3] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [4] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-desktop.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{59031a47-3f72-44a7-89c5-5595fe6b30ee}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-home.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-music.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{088e3905-0323-4b02-9826-5d99428e115f}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-downloads.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{d3162b92-9365-467a-956b-92703aca08af}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-docs.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-videos.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\computador.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-pictures.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [full] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-54)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [empty] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\lixeira-vazia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\C\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\D\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\E\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\F\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\G\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\H\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\AppX4ztfk9wxr86nxmzzq47px0nh0e58b8fw\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-txt.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
+    HKCU\Software\Classes\Directory\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Folder\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [3] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [4] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-desktop.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{59031a47-3f72-44a7-89c5-5595fe6b30ee}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-home.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-music.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{088e3905-0323-4b02-9826-5d99428e115f}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-downloads.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{d3162b92-9365-467a-956b-92703aca08af}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-docs.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-videos.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\computador.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-pictures.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [full] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-54)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [empty] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\lixeira-vazia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\C\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\D\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\E\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\F\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\G\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\H\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\AppX4ztfk9wxr86nxmzzq47px0nh0e58b8fw\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-txt.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
       .log usa AppX4ztfk9wxr86nxmzzq47px0nh0e58b8fw (jÃ¡ trocado por .txt)
-    HKCU\Software\Classes\AppXhk4des8gf2xat3wtyzc5q06ny78jhkqx\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-ini.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/inifile.png})
+    HKCU\Software\Classes\AppXhk4des8gf2xat3wtyzc5q06ny78jhkqx\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-ini.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/inifile.png})
       .md sem ProgID: pulado
       .rtf sem ProgID: pulado
-    HKCU\Software\Classes\MSEdgePDF\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-pdf.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\AppX43hnxtbyyps62jhe9sqpdzxn1790zetc\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-png.ico,0   (antes: @{Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.Windows.Photos/Files/Assets/Retail/PhotosLogoExtensions.png})
+    HKCU\Software\Classes\MSEdgePDF\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-pdf.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\AppX43hnxtbyyps62jhe9sqpdzxn1790zetc\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-png.ico,0   (antes: @{Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.Windows.Photos/Files/Assets/Retail/PhotosLogoExtensions.png})
       .jpg usa AppX43hnxtbyyps62jhe9sqpdzxn1790zetc (jÃ¡ trocado por .png)
       .jpeg usa AppX43hnxtbyyps62jhe9sqpdzxn1790zetc (jÃ¡ trocado por .png)
       .gif usa AppX43hnxtbyyps62jhe9sqpdzxn1790zetc (jÃ¡ trocado por .png)
       .bmp usa AppX43hnxtbyyps62jhe9sqpdzxn1790zetc (jÃ¡ trocado por .png)
       .webp usa AppX43hnxtbyyps62jhe9sqpdzxn1790zetc (jÃ¡ trocado por .png)
       .heic usa AppX43hnxtbyyps62jhe9sqpdzxn1790zetc (jÃ¡ trocado por .png)
-    HKCU\Software\Classes\MSEdgeHTM\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-svg.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-mp3.ico,0   (antes: @{Microsoft.ZuneMusic_11.2609.11.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.ZuneMusic/Files/Assets/MediaPlayerFileExtension.png})
+    HKCU\Software\Classes\MSEdgeHTM\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-svg.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-mp3.ico,0   (antes: @{Microsoft.ZuneMusic_11.2609.11.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.ZuneMusic/Files/Assets/MediaPlayerFileExtension.png})
       .wav usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
       .flac usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
       .m4a usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
       .ogg usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
-    HKCU\Software\Classes\VLC.aif\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\VLC.aiff\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\VLC.aif\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\VLC.aiff\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
       .mp4 usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
       .mkv usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
       .mov usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
       .avi usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
       .webm usa AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs (jÃ¡ trocado por .mp3)
-    HKCU\Software\Classes\ChromeHTML\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-html.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\ChromeHTML\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-html.ico,0   (antes: nÃ£o existia)
       .htm usa ChromeHTML (jÃ¡ trocado por .html)
-    HKCU\Software\Classes\AppXkv2jqn1pq8ajm0p5dhgqde7aafykkrrn\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-json.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
-    HKCU\Software\Classes\JSFile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-js.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\AppXkv2jqn1pq8ajm0p5dhgqde7aafykkrrn\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-json.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
+    HKCU\Software\Classes\JSFile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-js.ico,0   (antes: nÃ£o existia)
       .py sem ProgID: pulado
       .cpp sem ProgID: pulado
       .h sem ProgID: pulado
-    HKCU\Software\Classes\CSSfile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-css.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CSSfile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-css.ico,0   (antes: nÃ£o existia)
       .xml usa MSEdgeHTM (jÃ¡ trocado por .svg)
-    HKCU\Software\Classes\AppXxf01pj590w7z9mxmyv3nx0a9ewj3e51g\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-ps1.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/ps1file.png})
-    HKCU\Software\Classes\batfile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-bat.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\cmdfile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-cmd.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\AppXxf01pj590w7z9mxmyv3nx0a9ewj3e51g\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-ps1.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/ps1file.png})
+    HKCU\Software\Classes\batfile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-bat.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\cmdfile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-cmd.ico,0   (antes: nÃ£o existia)
       .docx sem ProgID: pulado
       .xlsx sem ProgID: pulado
       .pptx sem ProgID: pulado
       .csv sem ProgID: pulado
-    HKCU\Software\Classes\CompressedFolder\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\ArchiveFolder\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CompressedFolder\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\ArchiveFolder\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
       .rar usa ArchiveFolder (jÃ¡ trocado por .7z)
 
 [2026-11-11 02:19] Ãcones do Windows: DESFEITO (tools\icones-sistema.ps1 -Desfazer). Valores antigos devolvidos.
 
 [2026-11-11 02:20] Ãcones do Windows trocados pelos do Mac (tools\icones-sistema.ps1). 39 valores no HKCU; valores antigos em docs\backup-icones-sistema.json. Desfazer: powershell -ExecutionPolicy Bypass -File tools\icones-sistema.ps1 -Desfazer
-    HKCU\Software\Classes\Directory\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Folder\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [3] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [4] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-desktop.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{59031a47-3f72-44a7-89c5-5595fe6b30ee}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-home.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-music.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{088e3905-0323-4b02-9826-5d99428e115f}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-downloads.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{d3162b92-9365-467a-956b-92703aca08af}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-docs.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-videos.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\computador.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\CLSID\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-pictures.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [full] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-54)
-    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [empty] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\lixeira-vazia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\C\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\D\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\E\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\F\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\G\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Applications\Explorer.exe\Drives\H\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Directory\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Folder\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [3] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [4] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{B4BFCC3A-DB2C-424C-B029-7FE99A87C641}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-desktop.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{59031a47-3f72-44a7-89c5-5595fe6b30ee}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-home.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{3dfdf296-dbec-4fb4-81d1-6a3438bcf4de}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-music.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{088e3905-0323-4b02-9826-5d99428e115f}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-downloads.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{d3162b92-9365-467a-956b-92703aca08af}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-docs.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{f86fa3ab-70d2-4fc7-9c99-fcbf05467f3a}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-videos.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{20D04FE0-3AEA-1069-A2D8-08002B30309D}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\computador.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CLSID\{24ad3ad4-a569-4530-98e1-ab02f9417aa8}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-pictures.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [full] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\lixeira-cheia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-54)
+    HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\CLSID\{645FF040-5081-101B-9F08-00AA002F954E}\DefaultIcon [empty] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\lixeira-vazia.ico,0   (antes: C:\WINDOWS\System32\imageres.dll,-55)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\C\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\D\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\E\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\F\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\G\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Applications\Explorer.exe\Drives\H\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\disco.ico,0   (antes: nÃ£o existia)
       .md sem ProgID: fica o documento genÃ©rico
       .rtf sem ProgID: fica o documento genÃ©rico
       .py sem ProgID: fica o documento genÃ©rico
@@ -102,53 +102,53 @@
       .pptx sem ProgID: fica o documento genÃ©rico
       .csv sem ProgID: fica o documento genÃ©rico
       AppX4ztfk9wxr86nxmzzq47px0nh0e58b8fw <- .txt .log
-    HKCU\Software\Classes\AppX4ztfk9wxr86nxmzzq47px0nh0e58b8fw\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-texto.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
+    HKCU\Software\Classes\AppX4ztfk9wxr86nxmzzq47px0nh0e58b8fw\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-texto.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
       AppXhk4des8gf2xat3wtyzc5q06ny78jhkqx <- .ini
-    HKCU\Software\Classes\AppXhk4des8gf2xat3wtyzc5q06ny78jhkqx\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-ini.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/inifile.png})
+    HKCU\Software\Classes\AppXhk4des8gf2xat3wtyzc5q06ny78jhkqx\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-ini.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/inifile.png})
       MSEdgePDF <- .pdf
-    HKCU\Software\Classes\MSEdgePDF\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-pdf.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\MSEdgePDF\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-pdf.ico,0   (antes: nÃ£o existia)
       AppX43hnxtbyyps62jhe9sqpdzxn1790zetc <- .png .jpg .jpeg .gif .bmp .webp .heic
-    HKCU\Software\Classes\AppX43hnxtbyyps62jhe9sqpdzxn1790zetc\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-imagem.ico,0   (antes: @{Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.Windows.Photos/Files/Assets/Retail/PhotosLogoExtensions.png})
+    HKCU\Software\Classes\AppX43hnxtbyyps62jhe9sqpdzxn1790zetc\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-imagem.ico,0   (antes: @{Microsoft.Windows.Photos_2026.11090.22001.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.Windows.Photos/Files/Assets/Retail/PhotosLogoExtensions.png})
       MSEdgeHTM <- .svg .xml
-    HKCU\Software\Classes\MSEdgeHTM\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-generico.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\MSEdgeHTM\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-generico.ico,0   (antes: nÃ£o existia)
       AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs <- .mp3 .wav .flac .m4a .ogg .mp4 .mkv .mov .avi .webm
-    HKCU\Software\Classes\AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-midia.ico,0   (antes: @{Microsoft.ZuneMusic_11.2609.11.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.ZuneMusic/Files/Assets/MediaPlayerFileExtension.png})
+    HKCU\Software\Classes\AppXqj98qxeaynz6dv4459ayz6bnqxbyaqcs\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-midia.ico,0   (antes: @{Microsoft.ZuneMusic_11.2609.11.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.ZuneMusic/Files/Assets/MediaPlayerFileExtension.png})
       VLC.aif <- .aif
-    HKCU\Software\Classes\VLC.aif\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\VLC.aif\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
       VLC.aiff <- .aiff
-    HKCU\Software\Classes\VLC.aiff\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\VLC.aiff\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-aif.ico,0   (antes: nÃ£o existia)
       ChromeHTML <- .html .htm
-    HKCU\Software\Classes\ChromeHTML\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-html.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\ChromeHTML\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-html.ico,0   (antes: nÃ£o existia)
       AppXkv2jqn1pq8ajm0p5dhgqde7aafykkrrn <- .json
-    HKCU\Software\Classes\AppXkv2jqn1pq8ajm0p5dhgqde7aafykkrrn\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-json.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
+    HKCU\Software\Classes\AppXkv2jqn1pq8ajm0p5dhgqde7aafykkrrn\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-json.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/txtfile.png})
       JSFile <- .js
-    HKCU\Software\Classes\JSFile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-js.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\JSFile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-js.ico,0   (antes: nÃ£o existia)
       CSSfile <- .css
-    HKCU\Software\Classes\CSSfile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-css.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CSSfile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-css.ico,0   (antes: nÃ£o existia)
       AppXxf01pj590w7z9mxmyv3nx0a9ewj3e51g <- .ps1
-    HKCU\Software\Classes\AppXxf01pj590w7z9mxmyv3nx0a9ewj3e51g\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-ps1.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/ps1file.png})
+    HKCU\Software\Classes\AppXxf01pj590w7z9mxmyv3nx0a9ewj3e51g\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-ps1.ico,0   (antes: @{Microsoft.WindowsNotepad_11.2607.14.0_x64__8wekyb3d8bbwe?ms-resource://Microsoft.WindowsNotepad/Files/Assets/ps1file.png})
       batfile <- .bat
-    HKCU\Software\Classes\batfile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-bat.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\batfile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-bat.ico,0   (antes: nÃ£o existia)
       cmdfile <- .cmd
-    HKCU\Software\Classes\cmdfile\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-cmd.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\cmdfile\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-cmd.ico,0   (antes: nÃ£o existia)
       CompressedFolder <- .zip
-    HKCU\Software\Classes\CompressedFolder\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\CompressedFolder\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
       ArchiveFolder <- .7z .rar
-    HKCU\Software\Classes\ArchiveFolder\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
-    HKCU\Software\Classes\Unknown\DefaultIcon [(PadrÃ£o)] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-generico.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\ArchiveFolder\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-zip.ico,0   (antes: nÃ£o existia)
+    HKCU\Software\Classes\Unknown\DefaultIcon [(PadrÃ£o)] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-generico.ico,0   (antes: nÃ£o existia)
 
 [2026-11-11 02:22] desktop.ini das pastas do usuÃ¡rio -> Ã­cones do Mac (tools\icones-sistema-extra.ps1). CÃ³pias originais em docs\backup-desktopini\; desfazer: tools\icones-sistema-extra.ps1 -Desfazer
-    C:\Users\TheoH\OneDrive\Ãrea de Trabalho\desktop.ini -> IconResource=C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-desktop.ico,0
-    C:\Users\TheoH\OneDrive\Documentos\desktop.ini -> IconResource=C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-docs.ico,0
-    C:\Users\TheoH\Downloads\desktop.ini -> IconResource=C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-downloads.ico,0
-    C:\Users\TheoH\OneDrive\Imagens\desktop.ini -> IconResource=C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-pictures.ico,0
-    C:\Users\TheoH\Music\desktop.ini -> IconResource=C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-music.ico,0
-    C:\Users\TheoH\Videos\desktop.ini -> IconResource=C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta-videos.ico,0
+    %USERPROFILE%\OneDrive\Ãrea de Trabalho\desktop.ini -> IconResource=%USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-desktop.ico,0
+    %USERPROFILE%\OneDrive\Documentos\desktop.ini -> IconResource=%USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-docs.ico,0
+    %USERPROFILE%\Downloads\desktop.ini -> IconResource=%USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-downloads.ico,0
+    %USERPROFILE%\OneDrive\Imagens\desktop.ini -> IconResource=%USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-pictures.ico,0
+    %USERPROFILE%\Music\desktop.ini -> IconResource=%USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-music.ico,0
+    %USERPROFILE%\Videos\desktop.ini -> IconResource=%USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta-videos.ico,0
 
 [2026-11-11 02:22] HKLM Shell Icons (pasta e arquivo genÃ©rico) -> Ã­cones do Mac (tools\icones-sistema-extra.ps1, como administrador). Chave criada. Backup docs\backup-icones-maquina.json; desfazer: tools\icones-sistema-extra.ps1 -Desfazer
-    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [0] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\doc-generico.ico,0   (antes: nÃ£o existia)
-    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [3] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
-    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [4] = C:\Users\TheoH\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [0] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\doc-generico.ico,0   (antes: nÃ£o existia)
+    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [3] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
+    HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons [4] = %USERPROFILE%\Documents\shell-proprio\bin\icones-sistema\pasta.ico,0   (antes: nÃ£o existia)
 
 [2026-11-11 09:52] Hyper-V ligado (Enable-WindowsOptionalFeature Microsoft-Hyper-V-All, como administrador, sem reiniciar) para a VM de testes do AuthUX. Desfazer: Disable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All (administrador) e reiniciar.
 
@@ -161,9 +161,9 @@
     HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU [AUOptions] = 2   (antes: nÃ£o existia)
     HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU [NoAutoRebootWithLoggedOnUsers] = 1   (antes: nÃ£o existia)
 
-[2026-11-11 10:49] VM de testes do AuthUX criada no Hyper-V (tools\criar-vm-authux.ps1, como administrador): AuthUX-Teste em C:\Users\TheoH\Hyper-V\AuthUX-Teste, ISO 26200.9711 do UUP dump. Desfazer: Remove-VM -Name AuthUX-Teste -Force e apagar a pasta C:\Users\TheoH\Hyper-V\AuthUX-Teste.
+[2026-11-11 10:49] VM de testes do AuthUX criada no Hyper-V (tools\criar-vm-authux.ps1, como administrador): AuthUX-Teste em %USERPROFILE%\Hyper-V\AuthUX-Teste, ISO 26200.9711 do UUP dump. Desfazer: Remove-VM -Name AuthUX-Teste -Force e apagar a pasta %USERPROFILE%\Hyper-V\AuthUX-Teste.
 
-[2026-11-11 10:51] VM AuthUX-Teste: disco de dados C:\Users\TheoH\Hyper-V\AuthUX-Teste\pacotes.vhdx (atualizaÃ§Ãµes 26200.9711 + AuthUX.dll) ligado na VM (tools\vm-authux-pacotes.ps1). SÃ³ afeta a VM.
+[2026-11-11 10:51] VM AuthUX-Teste: disco de dados %USERPROFILE%\Hyper-V\AuthUX-Teste\pacotes.vhdx (atualizaÃ§Ãµes 26200.9711 + AuthUX.dll) ligado na VM (tools\vm-authux-pacotes.ps1). SÃ³ afeta a VM.
 
 [2026-11-11 11:44] SÃ³ na VM AuthUX-Teste (nÃ£o no PC): ponto de verificaÃ§Ã£o 'antes do AuthUX'; AuthUX.dll copiado para o System32 da VM e as chaves LogonUX/LockScreenHost DllPath da VM apontadas para ele (tools\vm-authux.ps1 -Acao instalar). Desfazer: tools\vm-authux.ps1 -Acao desfazer ou restaurar o ponto de verificaÃ§Ã£o.
 
@@ -449,7 +449,7 @@ Observado e não mexido: com janela de administrador na frente, Win+R abre o Exe
 A comparação rigorosa das barras de título com o macOS foi interrompida por este relato; ainda não feita.
 [2026-11-12 21:00] TRABALHO NA VERSÃO NATIVA PARADO a pedido do usuário: no PC o ponteiro do mouse sumiu com a barra nativa instalada; ele vai desinstalar (Desfazer.cmd) e ficar só com a versão que não mexe no Windows (bin\SequoiaShell.exe). Causa do sumiço NÃO investigada. Parei no meio de uma mudança nos símbolos das bolinhas (src\shell\barras.cpp, Pintar): o fonte pode ter ficado com a mudança, a compilação foi interrompida e a VM pode estar no meio de uma instalação; o MacBarra.dll do pacote dist\ é o da correção de arrastar abas (sem os símbolos novos). Nada alterado no PC por mim.
 [2026-11-12 21:30 PC] VERSÃO NATIVA ENCERRADA a pedido do usuário (ele já tinha rodado o Desfazer.cmd: conferi no PC que a barra voltou a ser Taskbar.dll, as pastas explorerframe.dll e o SequoiaShell.exe está rodando). Apagado do projeto, a pedido dele: barra-nativa\ (inteira), dist\SequoiaNativo-2026-11-12\, tools\vm-barra-dentro.ps1, tools\vm-apps-dentro.ps1. Guardado antes: docs\nativo-fontes-2026-11-12.zip (fontes nativos, sem binários) e docs\nativo-mudancas-boas.md (o que continua valendo para a versão normal: alertas etc.). O código nativo em src\ ficou, desligado na versão normal.
-Também a pedido dele ("apaga também a VM", por falta de espaço): VM Hyper-V AuthUX-Teste desligada, removida do Hyper-V e pasta C:\Users\TheoH\Hyper-V\AuthUX-Teste apagada (113,6 GB, com os 3 pontos de verificação). Não há mais VM de testes: os scripts tools\vm-*.ps1 e o trabalho do AuthUX/Windows Mac ficam sem onde rodar. Espaço livre em C: de 92,3 para 205,8 GB.
+Também a pedido dele ("apaga também a VM", por falta de espaço): VM Hyper-V AuthUX-Teste desligada, removida do Hyper-V e pasta %USERPROFILE%\Hyper-V\AuthUX-Teste apagada (113,6 GB, com os 3 pontos de verificação). Não há mais VM de testes: os scripts tools\vm-*.ps1 e o trabalho do AuthUX/Windows Mac ficam sem onde rodar. Espaço livre em C: de 92,3 para 205,8 GB.
 NÃO apagado (fica para o usuário decidir): a ISO do Windows em Downloads\26200.9711_..._convert (13,7 GB), os pacotes antigos em dist\ (~1,3 GB), e C:\SequoiaMac (7 MB) e C:\SequoiaShell (46 MB), deixados pelo instalador nativo.[2026-11-12 20:37 PC] Comparação com o Mac real (tela do usuário): maior diferença = Chrome/Electron sem as bolinhas. Tentativa: src\janelas\abas.cpp (dentro do Chrome: faixa com a linha das abas deslocada por miniatura do DWM, mouse e GetCursorPos/GetMessagePos traduzidos). Funcionou na tela, mas o usuário pediu para tirar ("não funciona muito bem"): abas.cpp apagado, build.cmd e macjanela.cpp como antes, SequoiaWindow.dll recompilada e Shell reiniciado; as faixas soltaram das duas janelas do Chrome (C:\Users\Public\MacAbas.log). Não retomar as bolinhas no Chrome sem ele pedir.
 [2026-11-12 20:48 PC] Barra de menus: menus próprios (como os do Mac) para apps sem menu Win32, em menubar.cpp (AppMenus): Chrome/Edge/Brave/Vivaldi (Arquivo, Editar, Visualizar, Histórico, Favoritos, Aba, Janela, Ajuda), Discord, WhatsApp e Claude. Os itens mandam o atalho do Windows do app (mesmo SendKeys dos menus genéricos). O app é reconhecido pelo .exe da janela ativa (o App do Chrome casa pelo AUMID e vinha sem exe). Traduções em idioma_en.inc. O usuário roda o Shell INSTALADO (%LOCALAPPDATA%\Programs\SequoiaShell\bin): SequoiaShell.exe novo copiado para lá (o antigo, de 16:52, em %LOCALAPPDATA%\SequoiaBinariosAntigos\SequoiaShell.exe.instalado.*) e Shell reiniciado; as DLLs e os outros exes instalados continuam os de 16:52. Conferido na tela só com o Claude na frente (Arquivo, Editar, Visualizar, Janela, Ajuda); Chrome, Discord e WhatsApp e os atalhos de cada item NÃO conferidos.
 
@@ -469,7 +469,7 @@ NÃO apagado (fica para o usuário decidir): a ISO do Windows em Downloads\26200
 
 [2026-11-13 20:40 PC] TEMA PRESO (o usuário: 'o tema do sequoia bugou e não consigo trocar pro tahoe'). Causa: reduzir_transparencia=1 no %APPDATA%\Shell\ajustes.txt (vidro opaco e o menu Tema ficava cinza). Mudado para 0 (cópia antes: ajustes.antes-reduzir.txt na mesma pasta; desfazer = ligar 'Reduzir transparência' em Ajustes > Aparência > Transparência e Efeitos). Código: src\ajustes\paginas.cpp, o Tema não fica mais desativado com a transparência reduzida. SequoiaSettings.exe recompilado e copiado para a instalação (zip não refeito).
 [2026-11-14 13:50 PC] MEMÓRIA COMO NO MAC (o usuário: 'entender como o mac gerencia a memória e aplicar um sistema igual'). Novo src\shell\memoria.cpp: (1) pressão de memória como a do Mac (src\comum\pressao.h: memória disponível + commit; verde/amarelo/vermelho); no amarelo o Shell solta cache da GPU (IDXGIDevice3::Trim nos 3 dispositivos D3D) e manda para a memória comprimida as páginas paradas dele, da Captura residente, do Finder reserva e dos apps em soneca (SetProcessWorkingSetSizeEx -1,-1: nada se perde, o Windows comprime ou guarda em espera); no vermelho abre o Forçar Encerrar no modo 'Seu sistema ficou sem memória para aplicativos' (no máximo a cada 10 min; quem encerra é o usuário). (2) Soneca de Apps (App Nap): programa com todas as janelas minimizadas/cobertas/em outra mesa há 30 s vai para o modo eficiência do Windows (SetProcessInformation ProcessPowerThrottling EXECUTION_SPEED + IGNORE_TIMER_RESOLUTION, por processo, NADA gravado no sistema); acorda ao aparecer ou vir para a frente; fora: quem toca/grava som, Shell, Explorador, elevados e app_nap_excluir (padrão ableton*,audiocore*,insightful*,workpuls*,claude.exe). O estado de antes é devolvido ao acordar e quando o Shell sai (conferido: control=0 depois de reiniciar). Desligar: Ajustes > Bateria/Energia > Soneca de Apps (app_nap=0). (3) Captura residente e Finder reserva: páginas para a memória comprimida a cada 5 min. NOVO APP src\forcar (SequoiaForceQuit.exe, build.cmd apps, ícone do Monitor): Forçar Encerrar Aplicativos do Mac, Ctrl+Alt+Esc e menu da Apple > Forçar Encerrar… (antes abria o Monitor); '(Não Respondendo)' em vermelho, confirmação antes de encerrar. Monitor de Atividade: gráfico de pressão com a conta nova e coluna 'App Nap' (Sim/Não) na aba Energia. Desfazer: app_nap=0 (ou tirar memoria::Start de main.cpp).
-[2026-11-15 22:20 PC] REBRANDING TAHOE PELO GUIA (C:\Users\TheoH\Documents\macOS26-Theme-Reference\...\LIQUID_GLASS_MACOS26.md, lido inteiro; medidas do macOS 26 real). Só código do projeto: nada gravado no sistema, nenhuma chave nova no ajustes.txt; tudo vale só com o tema Tahoe (liquid_glass=1), o Sequoia ficou como estava. Desfazer: trocar o Tema para macOS Sequoia (ou voltar os fontes). Mudanças:
+[2026-11-15 22:20 PC] REBRANDING TAHOE PELO GUIA (%USERPROFILE%\Documents\macOS26-Theme-Reference\...\LIQUID_GLASS_MACOS26.md, lido inteiro; medidas do macOS 26 real). Só código do projeto: nada gravado no sistema, nenhuma chave nova no ajustes.txt; tudo vale só com o tema Tahoe (liquid_glass=1), o Sequoia ficou como estava. Desfazer: trocar o Tema para macOS Sequoia (ou voltar os fontes). Mudanças:
 (1) Barra de menus (menubar.cpp): 30 pt no Tahoe (26 no Sequoia; muda sozinha ao trocar o tema), menu Apple em x 10, 8 pt de respiro em cada ícone da direita, menus abrindo 1 pt abaixo da barra e 4 pt à esquerda do título.
 (2) Menus de contexto (context_menu.cpp, todos os apps): itens de 24, separador de 11, margem 5, texto em x 14 (sem ícones) / 33 (com ícones), ícone centrado em 22,5, atalho terminando 8 antes da borda, destaque com raio 8; vidro escuro 85 % de 0,165 e claro 77 % de 0,96 (cor medida na tela); sombra 29 % / σ 7,5 / +4 (claro 39 % / σ 6,5 / +2).
 (3) Janelas: sombra medida (ativa 69 % σ 19,5 +18; inativa 44 % σ 11,5 +8; claro 43 %/33 %) no Finder/Ajustes/Monitor (shadow.cpp), nas janelas com a nossa barra (sombra.h + macjanela.cpp) e nas Chromium/Store (sombras.cpp). Semáforo do Tahoe na SequoiaWindow.dll: 1º centro em 16, 23 entre eles (painel utilitário 10 pt, centro 13, 17 entre eles) e o verde com as setas diagonais da tela cheia ao passar o mouse. Abrir janela: 98,5 % → 100 % numa mola 0,20/0,54 em 170 ms (abrir.cpp); fechar: 0,21 s, encolhe para 98 % em cubic-bezier(0.25,1,0.5,1) (ampliar.cpp).
