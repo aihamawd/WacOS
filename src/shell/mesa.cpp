@@ -1847,27 +1847,28 @@ bool mesa::Standalone() { return g_standalone.load(); }
 
 // a faixa do papel de parede atrás da barra de menus, como a mesa a desenhou (o mesmo corte e estilo da tela):
 // a barra do Tahoe é transparente e a cor do texto segue o que está atrás dela
-bool mesa::TopColor(int barPx, float& r, float& g, float& b) {
+bool mesa::TopColor(int barPx, float& r, float& g, float& b, bool baixo) {
     Mon* p = Primary();
     if (!p || !p->wall || !p->wallDC) return false;
-    static HBITMAP lastBmp; static int lastPx; static float cr, cg, cb;  // só relê quando o papel de parede muda
-    if (p->wall == lastBmp && barPx == lastPx) { r = cr; g = cg; b = cb; return true; }
+    static HBITMAP lastBmp; static int lastPx; static bool lastBaixo; static float cr, cg, cb;  // só relê quando o papel de parede muda
+    if (p->wall == lastBmp && barPx == lastPx && baixo == lastBaixo) { r = cr; g = cg; b = cb; return true; }
     BITMAP bm{};
     if (!GetObjectW(p->wall, sizeof(bm), &bm) || bm.bmWidth <= 0 || bm.bmHeight <= 0) return false;
     int rows = std::clamp(barPx, 1, (int)bm.bmHeight);
-    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), bm.bmWidth, -rows, 1, 32, BI_RGB };
-    std::vector<BYTE> px((size_t)bm.bmWidth * rows * 4);
+    const int lidas = baixo ? (int)bm.bmHeight : rows, ini = lidas - rows;  // embaixo: lê inteiro e usa as últimas linhas
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), bm.bmWidth, -lidas, 1, 32, BI_RGB };
+    std::vector<BYTE> px((size_t)bm.bmWidth * lidas * 4);
     // o bitmap está selecionado no wallDC: GetDIBits lê o topo (de cima para baixo com a altura negativa)
-    if (GetDIBits(p->wallDC, p->wall, 0, rows, px.data(), &bi, DIB_RGB_COLORS) <= 0) return false;
+    if (GetDIBits(p->wallDC, p->wall, 0, lidas, px.data(), &bi, DIB_RGB_COLORS) <= 0) return false;
     double sr = 0, sg = 0, sb = 0; size_t n = 0;
-    for (int y = 0; y < rows; y += 2)
+    for (int y = ini; y < lidas; y += 2)
         for (int x = 0; x < bm.bmWidth; x += 6) {
             const BYTE* q = &px[((size_t)y * bm.bmWidth + x) * 4];
             sb += q[0]; sg += q[1]; sr += q[2]; n++;
         }
     if (!n) return false;
     r = (float)(sr / n / 255); g = (float)(sg / n / 255); b = (float)(sb / n / 255);
-    lastBmp = p->wall; lastPx = barPx; cr = r; cg = g; cb = b;
+    lastBmp = p->wall; lastPx = barPx; lastBaixo = baixo; cr = r; cg = g; cb = b;
     return true;
 }
 

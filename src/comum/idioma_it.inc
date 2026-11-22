@@ -1574,6 +1574,8 @@
 { L"Escolha o novo ícone de “%ls”", L"Scegli la nuova icona di “%ls”" },
 { L"Barras de título do Mac", L"Barre del titolo del Mac" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Per far tornare le barre del titolo del Mac nelle app, esci da Windows e accedi di nuovo." },
+{ L"Barra de menus embaixo, junto do Dock", L"Barra dei menu in basso, accanto al Dock" },
+{ L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.", L"I menu stanno a sinistra del Dock, le icone e l’orologio a destra. Il Dock deve essere in basso sul monitor principale; non disponibile con il tema Leopard." },
 { L"Mostrar a barra de menus em todos os monitores", L"Mostra la barra dei menu su tutti i monitor" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Se disattivato, la barra dei menu resta solo sul monitor principale e gli altri usano tutto lo schermo." },
 { L"Caminho copiado", L"Percorso copiato" },

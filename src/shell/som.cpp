@@ -643,7 +643,7 @@ void PlaceHud() {
         // como na captura do Tahoe: logo abaixo da barra, com o ícone de som perto da ponta direita
         int right = hasIcon ? ref.x + (int)std::lround(56 * sc) : mi.rcMonitor.right - (int)std::lround(10 * sc);
         g_hudX = std::clamp(right - w, (int)mi.rcMonitor.left + (int)(6 * sc), (int)mi.rcMonitor.right - w - (int)(6 * sc));
-        g_hudY = mi.rcMonitor.top + menubar::Height() + (int)std::lround(6 * sc);
+        g_hudY = mi.rcMonitor.top + menubar::TopInset() + (int)std::lround(6 * sc);
     } else {  // Sequoia: centro, embaixo (acima do Dock)
         g_hudX = mi.rcMonitor.left + (mi.rcMonitor.right - mi.rcMonitor.left - w) / 2;
         g_hudY = mi.rcMonitor.bottom - (int)std::lround(140 * sc) - h;
@@ -719,6 +719,7 @@ void som::Toggle(RECT icon) {
     int w = (int)std::lround(MW * sc), h = (int)std::lround(MenuH() * sc);
     int x = std::clamp((int)icon.left, (int)mi.rcMonitor.left + (int)(5 * sc), (int)mi.rcMonitor.right - w - (int)(5 * sc));
     int y = icon.bottom + (int)std::lround((liquid::On() ? 3 : 1) * sc);
+    if (menubar::Embaixo()) y = std::max<int>(mi.rcMonitor.top, icon.top - h - (int)std::lround(6 * sc));  // abre para cima
     GlassPlace(g_m, x, y, w, h, true);
     PaintMenu();
     SetForegroundWindow(g_m.wnd);

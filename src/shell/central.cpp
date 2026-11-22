@@ -383,7 +383,7 @@ void Show(RECT cc, HWND below) {
     MONITORINFO mi{ sizeof(mi) };
     GetMonitorInfoW(MonitorFromPoint({ cc.right - 1, cc.top }, MONITOR_DEFAULTTOPRIMARY), &mi);
     int ww = cc.right - cc.left, hh = cc.bottom - cc.top;
-    int top = mi.rcMonitor.top + (int)std::lround(menubar::Height() * GetDpiForWindow(w) / 96.0);  // não cobre a barra de menus
+    int top = mi.rcMonitor.top + (int)std::lround(menubar::TopInset() * GetDpiForWindow(w) / 96.0);  // não cobre a barra de menus
     RECT r{ std::max(mi.rcMonitor.left, cc.left - ww * 3 / 2), top, mi.rcMonitor.right, std::min(mi.rcMonitor.bottom, cc.bottom + hh * 2 / 3) };
     SetWindowPos(w, below, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOACTIVATE | SWP_SHOWWINDOW);
 }
@@ -1099,6 +1099,8 @@ void Place() {
     // Tahoe (guia, seção 40): os módulos começam 12 abaixo da barra e terminam a 14 da borda direita
     if (Tahoe()) { x = mi.rcMonitor.right - wpx - (int)std::lround((14 - T_M) * sc); y = mi.rcMonitor.top + menubar::Height() + (int)std::lround((12 - T_M) * sc); }
     if (liquid::Leopard()) y = mi.rcMonitor.top + menubar::Height();  // Leopard: o menu sai colado na barra
+    if (int baixo = menubar::ReservedBottom(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY)))  // barra embaixo: sobe dela
+        y = std::max<int>(mi.rcMonitor.top, mi.rcMonitor.bottom - baixo - hpx - (int)std::lround(6 * sc));
     SetWindowPos(g_wnd, HWND_TOPMOST, x, y, wpx, hpx, SWP_NOACTIVATE);
     SetWindowPos(g_back, g_wnd, x, y, wpx, hpx, SWP_NOACTIVATE | (liquid::Leopard() ? 0 : SWP_SHOWWINDOW));
     // o desfoque por baixo da Central (só o desfoque, embaixo da barra de menus). Desligado por padrão desde

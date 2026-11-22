@@ -1183,3 +1183,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
    - Para trabalhar sem travar o PC: uma build por vez, sem worktree novo à toa, ensaio de pacote só quando for publicar.
   Atenção ao publicar: desde o push de 15:37 (e06bee0) o main público tem os commits da barra própria ligada por padrão. A build-28 precisa tirá-los, se ela continuar de fora.
   DESFAZER: reverter o commit.
+
+[2026-11-22 16:40, hora do PC] Issues #30, #26 (clipboard) e #29, mais a conferência da cor da barra (#27).
+  - #30 "(untitled)" na bandeja: apps Electron põem o ícone sem dica. src\shell\menubar.cpp: sem dica, o nome é o do programa dono (Discord, Claude, Chrome); o ícone também passa a poder ser fixado (o nome vazio sumia ao ler barra_icones). Conferido abrindo a lista: os três com nome.
+  - #26 histórico da Ilha: se outro app segurava a área de transferência por 100 ms, a cópia sumia e a interface esperava. src\shell\ilha.cpp: tenta de novo por timer (até ~2,5 s); guarda também arquivos copiados (até 200 por cópia), que voltam como arquivos. Imagens não. Conferido com o código real numa window station isolada: 8 de 8.
+  - #29 barra de menus embaixo: barra_embaixo=1 (Ajustes > Central de Controle, desligado por padrão; textos nos 11 idiomas). A barra vai para o meio da linha do Dock, com um buraco onde ele está (SetWindowRgn); o topo volta para as janelas; menus, Som e Central sobem dela. Só com o Dock embaixo no monitor principal e fora do Leopard. Conferido em 3440x1440 no Golden Gate: fotos da linha, área de trabalho 0,0-3440,1342, menu para cima, volta para 0,30-3440,1342. NÃO conferido: telas menores, escala acima de 100 %, dois monitores, Dock oculto, Central e Som abertos embaixo, a linha nova vista na página dos Ajustes.
+  - #27 "a barra devia pegar a cor do app maximizado, como no Mac": não é assim no Mac (segue o papel de parede; guia macOS 26, barra 100 % transparente). Nada mudado.
+  DESFAZER: reverter o commit.

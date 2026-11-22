@@ -1574,6 +1574,8 @@
 { L"Escolha o novo ícone de “%ls”", L"Neues Symbol für „%ls“ auswählen" },
 { L"Barras de título do Mac", L"Mac-Titelleisten" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Damit die Mac-Titelleisten wieder in deinen Apps erscheinen, melde dich bei Windows ab und wieder an." },
+{ L"Barra de menus embaixo, junto do Dock", L"Menüleiste unten, neben dem Dock" },
+{ L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.", L"Menüs stehen links vom Dock, Symbole und Uhr rechts. Das Dock muss unten auf dem Hauptdisplay sein; im Leopard-Design nicht verfügbar." },
 { L"Mostrar a barra de menus em todos os monitores", L"Menüleiste auf allen Displays anzeigen" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Wenn aus, bleibt die Menüleiste nur auf dem Hauptdisplay und die anderen nutzen den ganzen Bildschirm." },
 { L"Caminho copiado", L"Pfad kopiert" },

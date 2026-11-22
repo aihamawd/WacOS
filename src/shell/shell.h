@@ -234,7 +234,10 @@ HWND Hwnd();
 int Height();           // px
 void SetFullscreen(bool on, HMONITOR mon = nullptr);  // app em tela cheia na frente: some (só no monitor dele; nullptr = todos)
 int HeightOn(HMONITOR mon);  // px da barra naquele monitor (cada monitor tem a sua barra)
-int ReservedOn(HMONITOR mon);  // px que a barra ocupa no topo daquele monitor (0: secundário sem barra, barra_todos_monitores=0)
+int ReservedOn(HMONITOR mon);  // px que a barra ocupa no topo daquele monitor (0: secundário sem barra, barra_todos_monitores=0, ou barra embaixo)
+bool Embaixo();         // barra_embaixo: a barra está na linha do Dock (Dock embaixo no monitor principal, fora do Leopard)
+int ReservedBottom(HMONITOR mon);  // px que a linha do Dock ocupa embaixo com a barra nela (0 = barra em cima)
+int TopInset();         // px da barra no topo do monitor principal (0 com ela embaixo): de onde descem os painéis
 void Displays();        // monitores mudaram: uma barra em cada
 void ApplyTheme();      // claro/escuro mudou
 void SoundChanged(bool device);  // volume/mudo (ou, com device, a saída padrão) mudou, ou o menu Som abriu/fechou: redesenha
@@ -403,7 +406,7 @@ void Pulse();                           // laço principal: a interface andou (o
 void NoExplorerOnExit();                // reiniciando o Shell: ao sair, o Explorador não é aberto (o Shell novo vem já)
 void SettingsChanged();                 // ajustes.txt mudou (explorer=0/1)
 // cor média do papel de parede que a mesa está mostrando, na faixa atrás da barra de menus (0..1); false sem mesa
-bool TopColor(int barPx, float& r, float& g, float& b);
+bool TopColor(int barPx, float& r, float& g, float& b, bool baixo = false);
 bool Standalone();                      // sem Explorador agora (qualquer thread)
 void WallpaperNow(const std::wstring& path);  // o Ajustes escolheu este papel de parede: mostra já
 void DepoisDoJogo();                    // modo jogo acabou: refaz a mesa se a tela mudou durante o jogo

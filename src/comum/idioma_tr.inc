@@ -1574,6 +1574,8 @@
 { L"Escolha o novo ícone de “%ls”", L"“%ls” için yeni simgeyi seçin" },
 { L"Barras de título do Mac", L"Mac başlık çubukları" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Mac başlık çubuklarının uygulamalarda yeniden görünmesi için Windows oturumunu kapatıp yeniden açın." },
+{ L"Barra de menus embaixo, junto do Dock", L"Menü çubuğu altta, Dock’un yanında" },
+{ L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.", L"Menüler Dock’un solunda, simgeler ve saat sağında durur. Dock ana ekranın altında olmalıdır; Leopard temasında kullanılamaz." },
 { L"Mostrar a barra de menus em todos os monitores", L"Menü çubuğunu tüm ekranlarda göster" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Kapalıyken menü çubuğu yalnızca ana ekranda kalır, diğerleri tüm ekranı kullanır." },
 { L"Caminho copiado", L"Yol kopyalandı" },

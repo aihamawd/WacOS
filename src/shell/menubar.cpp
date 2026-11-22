@@ -53,6 +53,7 @@ HWND Cur() { return g_cur ? g_cur : g_bar; }
 #define g_s (g_state[Cur()].s)
 #define g_hits (g_state[Cur()].hits)
 int g_open = -1;                 // índice em g_hits do item com menu aberto (na barra g_openBar)
+int g_vaoE = 0, g_vaoD = 0;      // barra embaixo: o trecho do Dock na linha dela (px da janela da barra); 0-0 = em cima
 HWND g_fg;                       // janela do app ativo (fora as nossas)
 std::wstring g_appName = L"Finder";
 std::vector<std::wstring> g_titles;   // menus do app ativo
@@ -70,10 +71,33 @@ std::vector<std::wstring> Shown() {
     if (a < s.size()) v.push_back(s.substr(a));
     return v;
 }
-std::wstring TrayKey(const TrayIcon& t) {  // nome estável: a dica até a primeira quebra de linha ou ":"
+// Apps Electron (Discord) põem o ícone sem dica: aparecia "(sem nome)" na lista e não dava para fixar, porque o nome
+// vazio some ao ler barra_icones (issue #30). Sem dica vale o nome do programa dono (Discord.exe -> Discord): é estável
+// e sai sem ler o disco. Guardado por janela e processo (o número de uma janela fechada pode voltar em outro app).
+std::wstring ProgramaDoIcone(HWND h) {
+    DWORD pid = 0;
+    if (!h || !GetWindowThreadProcessId(h, &pid) || !pid) return L"";
+    static std::map<std::pair<HWND, DWORD>, std::wstring> nomes;
+    auto chave = std::make_pair(h, pid);
+    if (auto it = nomes.find(chave); it != nomes.end()) return it->second;
+    std::wstring nome;
+    if (HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
+        wchar_t b[MAX_PATH]; DWORD n = MAX_PATH;
+        if (QueryFullProcessImageNameW(p, 0, b, &n)) {
+            nome = b;
+            nome = nome.substr(nome.find_last_of(L'\\') + 1);
+            if (nome.size() > 4 && !_wcsicmp(nome.c_str() + nome.size() - 4, L".exe")) nome.resize(nome.size() - 4);
+            if (!nome.empty()) nome[0] = towupper(nome[0]);
+        }
+        CloseHandle(p);
+    }
+    if (nomes.size() > 256) nomes.clear();
+    return nomes[chave] = nome;
+}
+std::wstring TrayKey(const TrayIcon& t) {  // nome estável: a dica até a primeira quebra de linha ou ":"; sem dica, o programa
     std::wstring k = t.tip.substr(0, t.tip.find_first_of(L"\r\n:"));
     while (!k.empty() && k.back() == L' ') k.pop_back();
-    return k;
+    return k.empty() ? ProgramaDoIcone(t.hwnd) : k;
 }
 bool IsShown(const TrayIcon& t) {
     if (shell::Setting(L"barra_icones_todos", L"0") == L"1") return true;  // Central de Controle: "Sempre na barra de menus"
@@ -558,6 +582,7 @@ void DrawCC(ID2D1RenderTarget* rt, ID2D1SolidColorBrush* br, float cx, float cy)
 // No Tahoe (Liquid Glass) a barra de menus não tem fundo nenhum, como no macOS 26: só o papel de parede atrás.
 bool BarBackground() {
     if (backdrop::Current().reduce || liquid::Leopard()) return true;  // Leopard: a barra translúcida clara sempre tem fundo
+    if (menubar::Embaixo()) return false;  // na linha do Dock: sem faixa atravessando a tela
     if (backdrop::Liquid()) return false;
     return shell::Setting(L"barra_fundo", L"1") != L"0";
 }
@@ -590,7 +615,9 @@ bool WallpaperTopDarkFile(bool fallback);
 // arquivo do papel de parede
 bool WallpaperTopDark(bool fallback) {
     float r, g, b;
-    if (!mesa::TopColor(menubar::Height(), r, g, b)) return WallpaperTopDarkFile(fallback);
+    const bool baixo = menubar::Embaixo();
+    const int faixa = baixo ? menubar::ReservedBottom(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY)) : menubar::Height();
+    if (!mesa::TopColor(faixa, r, g, b, baixo)) return WallpaperTopDarkFile(fallback);
     g_topR = r; g_topG = g; g_topB = b;
     double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
     static int adapt = -1;  // -1 ainda não decidido, 0 texto claro, 1 texto escuro
@@ -717,6 +744,9 @@ void Render() {
         rt->FillRectangle(D2D1::RectF(0, H - px, W, H), br);
     }
     g_hits.clear();
+    // Embaixo, o meio da linha é do Dock: o que é da esquerda acaba em limE e o da direita começa em limD
+    float limE = W, limD = 0;
+    if (g_vaoD > g_vaoE && bar == g_bar) { limE = g_vaoE / sc - 6; limD = g_vaoD / sc + 6; }
     bool litNow = false;  // Leopard: o item aceso fica com o texto branco sobre o azul
     auto highlight = [&](D2D1_RECT_F r) {
         if (leo) {  // Leopard: o destaque azul do Aqua de ponta a ponta na altura da barra, sem cantos
@@ -770,8 +800,7 @@ void Render() {
     if (!simbolo::Draw(rt, L"apple.logo", D2D1::RectF(x + 10, H / 2 - 7.5f, x + 24, H / 2 + 6.5f), (br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc), br)))  // a maçã do SF Symbols
         DrawLogo(rt, br, x + 17, H / 2);
     x += 34;
-    {
-        float w = ui::TextWidth(tfB, g_appName) + 20;
+    if (float w = ui::TextWidth(tfB, g_appName) + 20; x + w <= limE) {
         add(D2D1::RectF(x, 0, x + w, H), K_APP, 0);
         br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
         rt->DrawTextW(g_appName.c_str(), (UINT32)g_appName.size(), tfB, D2D1::RectF(x + 10, 0, x + w, H), br);
@@ -785,6 +814,7 @@ void Render() {
     float r = W - 10;
     auto slot = [&](float iconW, Kind k, int i) {  // reserva o espaço e devolve a caixa do símbolo
         float w = iconW + 2 * PAD;
+        if (r - w < limD) return D2D1::RectF(-1000, 0, -1000 + iconW, H);  // o Dock ocupa o lugar: fica de fora (nem clique)
         add(D2D1::RectF(r - w, 0, r, H), k, i);
         D2D1_RECT_F box = D2D1::RectF(r - w + PAD, 0, r - PAD, H);
         r -= w;
@@ -803,6 +833,11 @@ void Render() {
     {
         std::wstring t = ClockText();
         float w = ui::TextWidth(tfN, t) + 2 * PAD;
+        if (r - w - (18 + 2 * PAD) < limD) {  // embaixo com pouco espaço: só a hora, para a Central de Controle caber
+            SYSTEMTIME st; GetLocalTime(&st);
+            wchar_t hm[16]; swprintf_s(hm, L"%02d:%02d", st.wHour, st.wMinute);
+            t = hm; w = ui::TextWidth(tfN, t) + 2 * PAD;
+        }
         add(D2D1::RectF(r - w, 0, r, H), K_CLOCK, 0);
         br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
         rt->DrawTextW(t.c_str(), (UINT32)t.size(), tfN, D2D1::RectF(r - w + PAD, 0, r, H), br);
@@ -895,7 +930,7 @@ void Render() {
     for (int i = (int)tray::icons.size() - 1; i >= 0; i--) {
         auto& t = tray::icons[i];
         if (t.hidden || !t.icon || !IsShown(t) || tray::IsPrivacy(t)) continue;  // o do Windows: vira a bolinha
-        if (r - 37 < leftEnd + 60) { g_overflow = true; break; }  // sem espaço: some, como no Mac (macOS 27: aparece a »)
+        if (r - 37 < (limD > 0 ? limD + 34 : leftEnd + 60)) { g_overflow = true; break; }  // sem espaço: some, como no Mac (macOS 27: aparece a »)
         auto bx = slot(17, K_TRAY, i);
         std::vector<BYTE> mono = IconPixels(t.icon, px);
         // como os ícones-modelo do Mac: uma cor só, a mesma do texto da barra (branco no escuro, preto no claro);
@@ -960,7 +995,7 @@ void Render() {
     // menus do app (entre o nome e os ícones)
     for (int i = 0; i < (int)g_titles.size(); i++) {
         float w = ui::TextWidth(tfN, g_titles[i]) + 20;
-        if (x + w > r - 8) break;
+        if (x + w > std::min(r - 8, limE)) break;
         add(D2D1::RectF(x, 0, x + w, H), K_MENU, i);
         br->SetColor(litNow ? D2D1::ColorF(1, 1, 1) : fgc);
         rt->DrawTextW(g_titles[i].c_str(), (UINT32)g_titles[i].size(), tfN, D2D1::RectF(x + 10, 0, x + w, H), br);
@@ -1212,6 +1247,10 @@ void ShowAt(int hit, const std::vector<ctxmenu::Item>& items, std::function<void
     POINT pt{ wr.left + (LONG)std::lround(g_hits[hit].r.left * sc), wr.bottom };
     // Tahoe (guia, seção 35): o menu abre 1 pt abaixo da barra e 4 pt à esquerda do título (o texto fica a 10 da caixa)
     if (liquid::On()) pt = { wr.left + (LONG)std::lround((g_hits[hit].r.left + 6) * sc), wr.bottom + (LONG)std::lround(sc) };
+    if (Cur() == g_bar && menubar::Embaixo()) {  // na linha do Dock os menus sobem, centrados no item
+        pt = { wr.left + (LONG)std::lround((g_hits[hit].r.left + g_hits[hit].r.right) / 2 * sc), wr.top - (LONG)std::lround(4 * sc) };
+        ctxmenu::AboveNext();
+    }
     SetForegroundWindow(g_owner);  // o menu fecha se a janela dona não estiver na frente
     int id = ctxmenu::ShowItems(g_owner, pt, items);
     g_closedHit = hit; g_closedHitAt = GetTickCount();
@@ -1346,12 +1385,61 @@ void RenderIfChanged() {
     RECT rc; GetClientRect(g_bar, &rc);
     sig += std::to_wstring(rc.right) + L"x" + std::to_wstring(rc.bottom);
     for (HWND b : g_extras) { GetClientRect(b, &rc); sig += L"|" + std::to_wstring(rc.right) + L"x" + std::to_wstring(IsWindowVisible(b)); }
+    sig += L"|" + std::to_wstring(g_vaoE) + L"-" + std::to_wstring(g_vaoD);
     if (sig == last) return;
     last = sig;
     RenderAll();
 }
 
 const UINT WM_BARDISPLAYS = WM_APP + 41;  // monitores mudaram: refaz as barras (fora do WndProc que recebeu o aviso)
+
+// A barra principal no lugar dela: o topo do monitor, ou (barra_embaixo, issue #29) o meio da linha do Dock, com um
+// buraco na janela onde o Dock está, para os cliques e o passar do mouse continuarem dele. O Dock muda de largura
+// sozinho (app aberto, ampliação): o timer de 1 s chama de novo.
+void Assenta() {
+    if (!g_bar) return;
+    static bool eraEmbaixo;
+    static RECT posto;
+    const bool baixo = menubar::Embaixo();
+    HMONITOR hm = MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi{ sizeof(mi) };
+    if (!GetMonitorInfoW(hm, &mi)) return;
+    RECT q = mi.rcMonitor;
+    const int alt = menubar::HeightOn(hm);
+    if (baixo) q.top = q.bottom - menubar::ReservedBottom(hm) / 2 - alt / 2;
+    q.bottom = q.top + alt;
+    const bool mudou = baixo != eraEmbaixo, moveu = baixo && !EqualRect(&q, &posto);
+    int e = 0, d = 0;
+    if (baixo) {
+        RECT v;
+        // com o ponteiro em cima, o Dock está ampliado: o vão fica como estava (senão os menus piscavam)
+        if (dock::Vidro(&v) && v.bottom > q.top && v.top < q.bottom) {
+            e = std::max<int>(0, v.left - q.left); d = std::min<int>(q.right - q.left, v.right - q.left);
+            POINT pt; GetCursorPos(&pt);
+            if (!mudou && !moveu && g_vaoD > g_vaoE && PtInRect(&v, pt)) { e = g_vaoE; d = g_vaoD; }
+        }
+    }
+    if (!mudou && !moveu && e == g_vaoE && d == g_vaoD) return;
+    eraEmbaixo = baixo; posto = q; g_vaoE = e; g_vaoD = d;
+    SetWindowPos(g_bar, HWND_TOPMOST, q.left, q.top, q.right - q.left, q.bottom - q.top, SWP_NOACTIVATE);
+    HRGN rg = nullptr;
+    if (d > e) {
+        rg = CreateRectRgn(0, 0, q.right - q.left, q.bottom - q.top);
+        HRGN furo = CreateRectRgn(e, 0, d, q.bottom - q.top);
+        CombineRgn(rg, rg, furo, RGN_DIFF);
+        DeleteObject(furo);
+    }
+    SetWindowRgn(g_bar, rg, TRUE);  // a janela fica dona da região
+    if (mudou) {
+        BarGlass(g_bar);
+        Log(L"barra de menus: %ls", baixo ? L"embaixo, na linha do Dock" : L"em cima");
+        menubar::Displays();
+        return;
+    }
+    if (baixo) Log(L"barra de menus: embaixo em %d,%d-%d,%d, o Dock de %d a %d", q.left, q.top, q.right, q.bottom, e, d);
+    RenderAll();
+    if (moveu) shell::ApplyWorkArea();
+}
 
 LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
@@ -1366,7 +1454,7 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_BARDISPLAYS: menubar::Displays(); return 0;
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
-    case WM_TIMER: RefreshStatus(); menubar::Update(); return 0;
+    case WM_TIMER: RefreshStatus(); Assenta(); menubar::Update(); return 0;
     case WM_BARSTATUS: PegaStatus(); menubar::Update(); return 0;
     case WM_SETTINGCHANGE:  // Windows trocou entre claro e escuro
         if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { menubar::ApplyTheme(); dock::ApplyTheme(); }
@@ -1436,9 +1524,20 @@ static bool AllMonitors() { return shell::Setting(L"barra_todos_monitores", L"1"
 int menubar::ReservedOn(HMONITOR mon) {
     MONITORINFO mi{ sizeof(mi) };
     bool prim = GetMonitorInfoW(mon, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY);
+    if (menubar::Embaixo()) return 0;  // o topo de todos os monitores volta para as janelas
     if (prim) return Height();
     return AllMonitors() ? HeightOn(mon) : 0;
 }
+bool menubar::Embaixo() {
+    if (shell::Setting(L"barra_embaixo", L"0") != L"1" || liquid::Leopard()) return false;
+    if (!dock::Hwnd() || dock::Posicao() != 0) return false;
+    return dock::MonitorHandle() == MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+}
+int menubar::ReservedBottom(HMONITOR mon) {
+    if (!menubar::Embaixo() || mon != MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY)) return 0;
+    return std::max(dock::ReservedHeight(), HeightOn(mon));  // com o Dock oculto sobra a altura da barra
+}
+int menubar::TopInset() { return menubar::Embaixo() ? 0 : Height(); }
 
 // Uma barra em cada monitor (como no Mac): a principal no monitor principal e uma igual em cada um dos outros.
 void menubar::Displays() {
@@ -1457,8 +1556,10 @@ void menubar::Displays() {
     }, (LPARAM)&ctx);
     if (!prim.hm) { prim.hm = MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY); MONITORINFO mi{ sizeof(mi) }; GetMonitorInfoW(prim.hm, &mi); prim.r = mi.rcMonitor; }
     // "Mostrar a barra de menus em todos os monitores" desligado (barra_todos_monitores=0): só a do principal
-    if (!AllMonitors()) others.clear();
-    SetWindowPos(g_bar, HWND_TOPMOST, prim.r.left, prim.r.top, prim.r.right - prim.r.left, HeightOn(prim.hm), SWP_NOACTIVATE);
+    const bool baixo = menubar::Embaixo();
+    if (!AllMonitors() || baixo) others.clear();
+    Assenta();
+    if (!baixo) SetWindowPos(g_bar, HWND_TOPMOST, prim.r.left, prim.r.top, prim.r.right - prim.r.left, HeightOn(prim.hm), SWP_NOACTIVATE);
     // sobrando (monitor desligado): fecha
     while (g_extras.size() > others.size()) {
         HWND b = g_extras.back();

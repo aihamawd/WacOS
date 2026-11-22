@@ -1574,6 +1574,8 @@
 { L"Escolha o novo ícone de “%ls”", L"Выберите новый значок для «%ls»" },
 { L"Barras de título do Mac", L"Заголовки окон Mac" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"Чтобы заголовки окон Mac снова появились в приложениях, выйдите из Windows и войдите снова." },
+{ L"Barra de menus embaixo, junto do Dock", L"Строка меню внизу, рядом с Dock" },
+{ L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.", L"Меню слева от Dock, значки и часы справа. Dock должен быть внизу основного дисплея; недоступно в теме Leopard." },
 { L"Mostrar a barra de menus em todos os monitores", L"Показывать строку меню на всех дисплеях" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"Если выключено, строка меню остаётся только на основном дисплее, а остальные используют весь экран." },
 { L"Caminho copiado", L"Путь скопирован" },

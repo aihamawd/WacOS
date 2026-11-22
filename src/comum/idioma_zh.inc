@@ -1574,6 +1574,8 @@
 { L"Escolha o novo ícone de “%ls”", L"选择“%ls”的新图标" },
 { L"Barras de título do Mac", L"Mac 标题栏" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"要让应用重新显示 Mac 标题栏，请注销 Windows 后重新登录。" },
+{ L"Barra de menus embaixo, junto do Dock", L"菜单栏位于底部，与程序坞并排" },
+{ L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.", L"菜单位于程序坞左侧，图标和时钟位于右侧。程序坞需位于主显示器底部；Leopard 主题下不可用。" },
 { L"Mostrar a barra de menus em todos os monitores", L"在所有显示器上显示菜单栏" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"关闭后，菜单栏只显示在主显示器上，其他显示器使用整个屏幕。" },
 { L"Caminho copiado", L"已拷贝路径" },

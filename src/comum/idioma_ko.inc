@@ -1574,6 +1574,8 @@
 { L"Escolha o novo ícone de “%ls”", L"“%ls”의 새 아이콘 선택" },
 { L"Barras de título do Mac", L"Mac 제목 막대" },
 { L"As barras de título do Mac precisam que você saia e entre de novo no Windows para voltar a aparecer nos apps.", L"앱에 Mac 제목 막대를 다시 표시하려면 Windows에서 로그아웃한 후 다시 로그인하세요." },
+{ L"Barra de menus embaixo, junto do Dock", L"메뉴 막대를 하단 Dock 옆에 표시" },
+{ L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.", L"메뉴는 Dock 왼쪽, 아이콘과 시계는 오른쪽에 표시됩니다. Dock이 주 디스플레이 하단에 있어야 하며 Leopard 테마에서는 사용할 수 없습니다." },
 { L"Mostrar a barra de menus em todos os monitores", L"모든 디스플레이에 메뉴 막대 표시" },
 { L"Desligado, a barra de menus fica só no monitor principal e os outros usam a tela inteira.", L"끄면 메뉴 막대가 주 디스플레이에만 표시되고 다른 디스플레이는 화면 전체를 사용합니다." },
 { L"Caminho copiado", L"경로 복사됨" },

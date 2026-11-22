@@ -151,7 +151,10 @@ double g_meterAt, g_eqFrame;
 float g_bars[4];
 
 // ---- Transferência (só na memória) e Estante (%APPDATA%\Shell\estante.txt)
-std::deque<std::wstring> g_clips;
+std::deque<std::wstring> g_clips;  // texto; ou, começando com CLIP_ARQS, caminhos de arquivos separados por \n
+const wchar_t CLIP_ARQS = 1;
+const UINT_PTR TM_CLIP = 120;     // outro app segurava a área de transferência: lê de novo
+int g_clipTentou;
 int g_clipTop;  // primeira linha à vista (a lista rola com a roda)
 const int CLIP_MAX = 20, CLIP_ROWS = 4;
 bool g_selfCopy;
@@ -736,12 +739,34 @@ void ReadClipboard() {
     static UINT history = RegisterClipboardFormatW(L"CanIncludeInClipboardHistory");
     // gerenciadores de senha marcam o que não deve ir para históricos: respeita
     if (IsClipboardFormatAvailable(exclude)) return;
-    if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return;
-    for (int i = 0; i < 5 && !OpenClipboard(g_wnd); i++) Sleep(20);
+    const bool arqs = IsClipboardFormatAvailable(CF_HDROP) != FALSE;
+    if (!arqs && !IsClipboardFormatAvailable(CF_UNICODETEXT)) return;
+    // Quem copiou ainda segura (navegadores, gerenciadores): eram 5 esperas de 20 ms com a interface parada e, se não
+    // abrisse, a cópia sumia sem entrar no histórico (issue #26). Agora volta por timer, por até ~2,5 s.
+    if (!OpenClipboard(g_wnd)) {
+        if (++g_clipTentou <= 20) SetTimer(g_wnd, TM_CLIP, 120, nullptr);
+        else Log(L"ilha: a área de transferência ficou presa por outro app; cópia fora do histórico");
+        return;
+    }
+    KillTimer(g_wnd, TM_CLIP);
     std::wstring s;
     bool skip = false;
     if (HANDLE hh = GetClipboardData(history)) { if (DWORD* v = (DWORD*)GlobalLock(hh)) { skip = *v == 0; GlobalUnlock(hh); } }
-    if (!skip)
+    if (!skip && arqs) {  // arquivos copiados (Finder, Explorador): os caminhos
+        if (auto hd = (HDROP)GetClipboardData(CF_HDROP)) {
+            const UINT n = DragQueryFileW(hd, 0xFFFFFFFF, nullptr, 0);
+            if (n && n <= 200) {  // mais que isso fica de fora: copiar de volta pela metade seria pior
+                s.assign(1, CLIP_ARQS);
+                for (UINT k = 0; k < n; k++) {
+                    std::wstring f(DragQueryFileW(hd, k, nullptr, 0) + 1, L' ');
+                    f.resize(DragQueryFileW(hd, k, f.data(), (UINT)f.size()));
+                    if (k) s += L'\n';
+                    s += f;
+                }
+            }
+        }
+    }
+    if (!skip && s.empty())
         if (HANDLE h = GetClipboardData(CF_UNICODETEXT)) {
             if (auto* t = (const wchar_t*)GlobalLock(h)) { s.assign(t, wcsnlen(t, 20000)); GlobalUnlock(h); }
         }
@@ -759,6 +784,21 @@ void ReadClipboard() {
 void CopyText(const std::wstring& s) {
     if (!OpenClipboard(g_wnd)) return;
     EmptyClipboard();
+    if (!s.empty() && s[0] == CLIP_ARQS) {  // arquivos: voltam como arquivos (colar no Finder copia de verdade)
+        std::wstring lista = s.substr(1);
+        for (auto& ch : lista) if (ch == L'\n') ch = 0;
+        lista.push_back(0); lista.push_back(0);
+        if (HGLOBAL h = GlobalAlloc(GHND, sizeof(DROPFILES) + lista.size() * sizeof(wchar_t))) {
+            auto* df = (DROPFILES*)GlobalLock(h);
+            df->pFiles = sizeof(DROPFILES); df->fWide = TRUE;
+            memcpy(df + 1, lista.data(), lista.size() * sizeof(wchar_t));
+            GlobalUnlock(h);
+            if (!SetClipboardData(CF_HDROP, h)) GlobalFree(h);
+        }
+        CloseClipboard();
+        g_selfCopy = true;
+        return;
+    }
     if (HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE, (s.size() + 1) * sizeof(wchar_t))) {
         memcpy(GlobalLock(h), s.c_str(), (s.size() + 1) * sizeof(wchar_t));
         GlobalUnlock(h);
@@ -1267,9 +1307,22 @@ void DrawClip(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F b, f
         D2D1_RECT_F r = D2D1::RectF(L, y, R - (i == g_clipTop ? 44 : rola ? 6 : 0), y + rowH - 2);
         if (Hover(H_CLIP, i)) Chip(dc, br, r, ChipR(rowH - 2) * 0.8f, 1);
         std::wstring s = g_clips[i];
+        const bool arq = !s.empty() && s[0] == CLIP_ARQS;
+        if (arq) {  // só os nomes dos arquivos
+            std::wstring nomes, todos = s.substr(1);
+            for (size_t a = 0; a < todos.size();) {
+                size_t b = todos.find(L'\n', a);
+                if (b == std::wstring::npos) b = todos.size();
+                std::wstring f = todos.substr(a, b - a);
+                if (!nomes.empty()) nomes += L", ";
+                nomes += f.substr(f.find_last_of(L'\\') + 1);
+                a = b + 1;
+            }
+            s = nomes;
+        }
         for (auto& c : s) if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
         bool flash = g_flashClip == i && anim::Now() - g_flashAt < 1200;
-        Glyph(dc, br, flash ? 0xE73E : 0xE8C8, g_tfIconS, D2D1::RectF(r.left + 4, r.top, r.left + 22, r.bottom), flash ? GREEN : GRAY);
+        Glyph(dc, br, flash ? 0xE73E : arq ? 0xE7C3 : 0xE8C8, g_tfIconS, D2D1::RectF(r.left + 4, r.top, r.left + 22, r.bottom), flash ? GREEN : GRAY);
         Text(dc, br, flash ? Tr(L"Copiado") : s, g_tfSub, D2D1::RectF(r.left + 27, r.top, r.right - 6, r.bottom), flash ? GREEN : WHITE);
         AddHit(H_CLIP, r, i);
     }
@@ -1801,6 +1854,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_CLIPBOARDUPDATE:
         if (g_selfCopy) { g_selfCopy = false; return 0; }
         if (g_on) {
+            g_clipTentou = 0;
             ReadClipboard(); if (g_mode == M_OPEN && g_tab == TAB_CLIP && !g_running) Paint();
             // aviso rápido "Copiado" (texto, imagem ou arquivos), menos quando a ilha está aberta ou mostrando outra coisa
             // por cima (espiada); rajadas do mesmo app (alguns regravam várias vezes) contam uma vez só
@@ -1827,6 +1881,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return TRUE;
     case WM_TIMER:
         switch (w) {
+        case TM_CLIP: KillTimer(h, TM_CLIP); ReadClipboard(); if (g_mode == M_OPEN && g_tab == TAB_CLIP && !g_running) Paint(); break;
         case TM_EQ: StepBars(); if (!g_running) Paint(); UpdateTimers(); break;
         case TM_HOVER: KillTimer(h, TM_HOVER); if (g_hoverIn && g_mode != M_OPEN && g_mode != M_PEEK) { if (g_mode == M_TIMER) g_tab = TAB_TIMER; g_openOn = true; Update(); } break;
         case TM_LEAVE: KillTimer(h, TM_LEAVE); if (!g_hoverIn && !g_dragIn) { Log(L"ilha: ponteiro saiu, fecha"); Close(); if (g_peekOn) SetTimer(h, TM_PEEK, 1500, nullptr); } break;

@@ -1185,7 +1185,7 @@ void Place() {
     float sc = Sc();
     MONITORINFO mi{ sizeof(mi) };
     GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
-    int top = mi.rcMonitor.top + menubar::Height();
+    int top = mi.rcMonitor.top + menubar::TopInset();
     int w = (int)std::lround(COL_W * sc), h = std::max(100, (int)mi.rcWork.bottom - top);
     int x = mi.rcMonitor.right - w;
     SetWindowPos(g_wnd, HWND_TOPMOST, x, top, w, h, SWP_NOACTIVATE);
@@ -1560,7 +1560,7 @@ void BannerPlace() {
     float sc = ui::Scale(g_bwnd);
     MONITORINFO mi{ sizeof(mi) };
     GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
-    int top = mi.rcMonitor.top + menubar::Height();
+    int top = mi.rcMonitor.top + menubar::TopInset();
     int w = (int)std::lround(COL_W * sc), h = (int)std::lround(BannerH() * sc);
     int x = mi.rcMonitor.right - w;
     g_bhPx = h;

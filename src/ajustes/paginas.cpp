@@ -1484,7 +1484,12 @@ Page CentralControle() {
                       [](bool v) { SetSetting(L"barra_privacidade", v ? L"1" : L"0"); },
                       L"Uma bolinha laranja (microfone) ou verde (câmera) aparece ao lado da data enquanto um app usa um deles.");
     priv.icon = 0xE720; priv.iconColor = C_ORANGE;
-    p.groups.push_back(G({ clock, todos, priv }));
+    // issue #29: sem barra em cima, junto do Dock
+    Row baixo = Toggle(L"Barra de menus embaixo, junto do Dock", [] { return Setting(L"barra_embaixo", L"0") == L"1"; },
+                       [](bool v) { SetSetting(L"barra_embaixo", v ? L"1" : L"0"); },
+                       L"Os menus ficam à esquerda do Dock e os ícones e o relógio à direita. Precisa do Dock embaixo, no monitor principal; não vale no tema Leopard.");
+    baixo.icon = 0xE90E; baixo.iconColor = C_GRAY;
+    p.groups.push_back(G({ clock, baixo, todos, priv }));
     return p;
 }
 

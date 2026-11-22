@@ -476,7 +476,7 @@ RECT shell::WorkAreaFor(HMONITOR hm) {
         int r = dock::ReservedHeight();
         if (dock::Posicao() == 1) want.left += r;
         else if (dock::Posicao() == 2) want.right -= r;
-        else want.bottom -= r;
+        else want.bottom -= std::max(r, menubar::ReservedBottom(hm));  // barra embaixo: com o Dock oculto, a altura dela
     }
     return want;
 }
@@ -882,6 +882,10 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             std::wstring all = shell::Setting(L"barra_todos_monitores", L"1");
             if (lastAll != L"?" && all != lastAll) { menubar::Displays(); dock::ReloadSettings(); }
             lastAll = all;
+            static std::wstring lastBaixo = L"?";  // barra de menus em cima ou na linha do Dock (issue #29)
+            std::wstring baixo = shell::Setting(L"barra_embaixo", L"0");
+            if (baixo != lastBaixo) { menubar::Displays(); dock::ReloadSettings(); }
+            lastBaixo = baixo;
         }
         static int lastLang = -1;
         if (lastLang < 0) lastLang = idioma::Current();
