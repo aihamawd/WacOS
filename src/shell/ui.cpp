@@ -637,9 +637,7 @@ ID2D1Bitmap* ui::Bitmap(ID2D1RenderTarget* rt, UINT w, UINT h, const std::vector
     return b;
 }
 
-bool ui::ShellImage(const std::wstring& name, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra, bool iconOnly) {
-    IShellItemImageFactory* f = nullptr;
-    if (FAILED(SHCreateItemFromParsingName(name.c_str(), nullptr, IID_PPV_ARGS(&f)))) return false;
+static bool ImagemDoItem(IShellItemImageFactory* f, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra, bool iconOnly) {
     HBITMAP hb = nullptr;
     HRESULT hr = f->GetImage(SIZE{ px, px }, SIIGBF_RESIZETOFIT | (iconOnly ? SIIGBF_ICONONLY : 0), &hb);
     f->Release();
@@ -663,6 +661,18 @@ bool ui::ShellImage(const std::wstring& name, int px, UINT& w, UINT& h, std::vec
         for (size_t i = 0; i < bgra.size(); i += 4)
             for (int c = 0; c < 3; c++) bgra[i + c] = (BYTE)(bgra[i + c] * bgra[i + 3] / 255);
     return true;
+}
+
+bool ui::ShellImage(const std::wstring& name, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra, bool iconOnly) {
+    IShellItemImageFactory* f = nullptr;
+    if (FAILED(SHCreateItemFromParsingName(name.c_str(), nullptr, IID_PPV_ARGS(&f)))) return false;
+    return ImagemDoItem(f, px, w, h, bgra, iconOnly);
+}
+
+bool ui::ShellImageId(const std::vector<BYTE>& idList, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra) {
+    IShellItemImageFactory* f = nullptr;
+    if (idList.empty() || FAILED(SHCreateItemFromIDList((PCIDLIST_ABSOLUTE)idList.data(), IID_PPV_ARGS(&f)))) return false;
+    return ImagemDoItem(f, px, w, h, bgra, true);
 }
 
 bool ui::FileImage(const std::wstring& path, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra) {

@@ -93,24 +93,133 @@ struct LApp { std::wstring name, parsing, lower; int use = 0; std::wstring words
 struct SettingPage { const wchar_t* name; const wchar_t* words; const wchar_t* id; };
 
 const SettingPage SETTINGS[] = {
-    { L"Wi‑Fi", L"wifi rede sem fio internet", L"wifi" }, { L"Bluetooth", L"fone mouse teclado dispositivos", L"bluetooth" },
-    { L"Rede", L"ethernet internet ip firewall vpn proxy", L"rede" }, { L"Energia", L"bateria economia repouso", L"energia" },
-    { L"Geral", L"sobre atualização armazenamento data hora idioma início", L"geral" },
-    { L"Acessibilidade", L"narrador lupa legendas", L"acessibilidade" }, { L"Aparência", L"tema escuro claro destaque cor", L"aparencia" },
-    { L"Apple Intelligence e Siri", L"copilot fala voz assistente", L"inteligencia" },
-    { L"Central de Controle", L"barra de menus relógio ícones", L"central" }, { L"Mesa e Dock", L"dock tamanho ampliação ocultar janelas", L"dock" },
-    { L"Telas", L"monitor brilho resolução escala night shift", L"telas" }, { L"Protetor de Tela", L"proteção de tela", L"protetor" },
-    { L"Spotlight", L"pesquisa busca índice", L"spotlight" }, { L"Imagem de Fundo", L"papel de parede wallpaper", L"fundo" },
-    { L"Notificações", L"avisos alertas", L"notificacoes" }, { L"Som", L"volume saída entrada alto-falante microfone", L"som" },
-    { L"Foco", L"não incomodar", L"foco" }, { L"Tempo de Uso", L"família limites", L"tempo" },
-    { L"Tela Bloqueada", L"bloqueio senha protetor", L"bloqueio" },
-    { L"Privacidade e Segurança", L"localização câmera microfone permissões segurança", L"privacidade" },
-    { L"Touch ID e Senha", L"windows hello digital pin senha", L"senha" }, { L"Usuários e Grupos", L"contas usuários", L"usuarios" },
-    { L"Contas de Internet", L"email e-mail contas", L"contas" }, { L"Game Center", L"jogos xbox", L"jogos" },
-    { L"iCloud", L"onedrive nuvem backup", L"nuvem" }, { L"Teclado", L"repetição teclas digitação", L"teclado" },
-    { L"Mouse", L"rastreamento clique rolagem", L"mouse" }, { L"Trackpad", L"touchpad gestos", L"trackpad" },
-    { L"Impressoras e Scanners", L"imprimir scanner", L"impressoras" },
+    { L"Wi‑Fi", L"wifi rede sem fio internet wireless network", L"wifi" }, { L"Bluetooth", L"fone mouse teclado dispositivos headphones devices pairing", L"bluetooth" },
+    { L"Rede", L"ethernet internet ip firewall vpn proxy network internet connection", L"rede" }, { L"Energia", L"bateria economia repouso power battery sleep", L"energia" },
+    { L"Geral", L"sobre atualização armazenamento data hora idioma início general about software update storage date time language startup login", L"geral" },
+    { L"Acessibilidade", L"narrador lupa legendas accessibility narrator magnifier captions", L"acessibilidade" }, { L"Aparência", L"tema escuro claro destaque cor appearance theme dark light mode accent color", L"aparencia" },
+    { L"Apple Intelligence e Siri", L"copilot fala voz assistente voice speech assistant", L"inteligencia" },
+    { L"Central de Controle", L"barra de menus relógio ícones control center menu bar clock tray icons", L"central" }, { L"Mesa e Dock", L"dock tamanho ampliação ocultar janelas desktop dock size magnification autohide windows", L"dock" },
+    { L"Telas", L"monitor brilho resolução escala night shift display screen brightness resolution scale night", L"telas" }, { L"Protetor de Tela", L"proteção de tela screen saver screensaver", L"protetor" },
+    { L"Spotlight", L"pesquisa busca índice search index", L"spotlight" }, { L"Imagem de Fundo", L"papel de parede wallpaper background desktop picture", L"fundo" },
+    { L"Notificações", L"avisos alertas notifications alerts", L"notificacoes" }, { L"Som", L"volume saída entrada alto-falante microfone sound audio speaker output input microphone", L"som" },
+    { L"Foco", L"não incomodar focus do not disturb", L"foco" }, { L"Tempo de Uso", L"família limites screen time family", L"tempo" },
+    { L"Tela Bloqueada", L"bloqueio senha protetor lock screen password", L"bloqueio" },
+    { L"Privacidade e Segurança", L"localização câmera microfone permissões segurança privacy security location camera microphone permissions", L"privacidade" },
+    { L"Touch ID e Senha", L"windows hello digital pin senha password fingerprint sign-in", L"senha" }, { L"Usuários e Grupos", L"contas usuários users accounts", L"usuarios" },
+    { L"Contas de Internet", L"email e-mail contas internet accounts mail", L"contas" }, { L"Game Center", L"jogos xbox games", L"jogos" },
+    { L"iCloud", L"onedrive nuvem backup cloud", L"nuvem" }, { L"Teclado", L"repetição teclas digitação keyboard typing repeat", L"teclado" },
+    { L"Mouse", L"rastreamento clique rolagem pointer scroll tracking", L"mouse" }, { L"Trackpad", L"touchpad gestos gestures", L"trackpad" },
+    { L"Impressoras e Scanners", L"imprimir scanner printers print", L"impressoras" },
 };
+
+// ---- Ajustes e ferramentas do Windows ("device manager", "add or remove programs"): os mais procurados, com apelidos
+// em inglês e português, e mais todas as tarefas do Painel de Controle que o Windows lista ("Todas as Tarefas", ~200,
+// no idioma do sistema). abre: ms-settings:, arquivo do System32 ou "arquivo|argumentos".
+struct WinTool { const wchar_t *pt, *en, *abre, *icone, *palavras; };
+const WinTool WIN_TOOLS[] = {
+    { L"Configurações do Windows", L"Windows Settings", L"ms-settings:", L"", L"settings configuracoes ajustes do windows pc settings" },
+    { L"Gerenciador de Dispositivos", L"Device Manager", L"devmgmt.msc", L"", L"devmgmt drivers driver hardware dispositivos devices" },
+    { L"Adicionar ou remover programas", L"Add or remove programs", L"ms-settings:appsfeatures", L"", L"uninstall desinstalar apps aplicativos instalados installed features recursos" },
+    { L"Programas e Recursos", L"Programs and Features", L"appwiz.cpl", L"", L"appwiz uninstall desinstalar programs programas" },
+    { L"Painel de Controle", L"Control Panel", L"control.exe", L"control.exe", L"classic settings painel controle" },
+    { L"Gerenciamento de Disco", L"Disk Management", L"diskmgmt.msc", L"", L"diskmgmt partition particao format formatar drive hd ssd" },
+    { L"Serviços", L"Services", L"services.msc", L"", L"services servicos windows" },
+    { L"Gerenciamento do Computador", L"Computer Management", L"compmgmt.msc", L"", L"compmgmt" },
+    { L"Visualizador de Eventos", L"Event Viewer", L"eventvwr.msc", L"", L"eventvwr logs eventos errors erros" },
+    { L"Agendador de Tarefas", L"Task Scheduler", L"taskschd.msc", L"", L"taskschd scheduled tasks tarefas agendadas" },
+    { L"Gerenciador de Tarefas do Windows", L"Windows Task Manager", L"taskmgr.exe", L"taskmgr.exe", L"task manager taskmgr processos processes" },
+    { L"Editor do Registro", L"Registry Editor", L"regedit.exe", L"regedit.exe", L"regedit registry registro" },
+    { L"Editor de Política de Grupo", L"Edit Group Policy", L"gpedit.msc", L"", L"gpedit local group policy editor politica" },
+    { L"Configuração do Sistema", L"System Configuration", L"msconfig.exe", L"msconfig.exe", L"msconfig boot safe mode modo de seguranca" },
+    { L"Informações do Sistema", L"System Information", L"msinfo32.exe", L"msinfo32.exe", L"msinfo32 specs especificacoes" },
+    { L"Monitor de Recursos", L"Resource Monitor", L"resmon.exe", L"resmon.exe", L"resmon disk cpu network memoria" },
+    { L"Monitor de Desempenho", L"Performance Monitor", L"perfmon.exe", L"perfmon.exe", L"perfmon performance" },
+    { L"Limpeza de Disco", L"Disk Cleanup", L"cleanmgr.exe", L"cleanmgr.exe", L"cleanmgr clean temp limpar" },
+    { L"Desfragmentar e Otimizar Unidades", L"Defragment and Optimize Drives", L"dfrgui.exe", L"dfrgui.exe", L"defrag trim optimize otimizar" },
+    { L"Diagnóstico de Memória", L"Windows Memory Diagnostic", L"mdsched.exe", L"mdsched.exe", L"mdsched ram memory test" },
+    { L"Diagnóstico do DirectX", L"DirectX Diagnostic Tool", L"dxdiag.exe", L"dxdiag.exe", L"dxdiag directx gpu" },
+    { L"Versão do Windows", L"About Windows", L"winver.exe", L"winver.exe", L"winver version versao build" },
+    { L"Mapa de Caracteres", L"Character Map", L"charmap.exe", L"charmap.exe", L"charmap symbols simbolos" },
+    { L"Propriedades do Sistema", L"System Properties", L"sysdm.cpl", L"", L"sysdm advanced avancado computer name nome do computador" },
+    { L"Variáveis de Ambiente", L"Environment Variables", L"rundll32.exe|sysdm.cpl,EditEnvironmentVariables", L"SystemPropertiesAdvanced.exe", L"env path environment variaveis" },
+    { L"Ponto de Restauração", L"System Restore Point", L"SystemPropertiesProtection.exe", L"SystemPropertiesProtection.exe", L"restore restauracao protection protecao" },
+    { L"Opções de Desempenho", L"Performance Options", L"SystemPropertiesPerformance.exe", L"SystemPropertiesPerformance.exe", L"visual effects pagefile memoria virtual efeitos" },
+    { L"Conexões de Rede", L"Network Connections", L"ncpa.cpl", L"", L"ncpa adapter adaptador ethernet ip" },
+    { L"Painel de Som", L"Sound Control Panel", L"mmsys.cpl", L"", L"mmsys playback recording reproducao gravacao audio devices" },
+    { L"Propriedades do Mouse", L"Mouse Properties", L"main.cpl", L"", L"pointer cursor ponteiro mouse" },
+    { L"Propriedades da Internet", L"Internet Options", L"inetcpl.cpl", L"", L"inetcpl internet proxy" },
+    { L"Data e Hora clássico", L"Date and Time control panel", L"timedate.cpl", L"", L"timedate clock relogio" },
+    { L"Opções de Energia", L"Power Options", L"powercfg.cpl", L"", L"powercfg power plan plano de energia" },
+    { L"Região clássico", L"Region control panel", L"intl.cpl", L"", L"intl region format regiao" },
+    { L"Controladores de Jogo", L"Game Controllers", L"joy.cpl", L"", L"joystick controle gamepad calibrate" },
+    { L"Firewall do Windows", L"Windows Firewall", L"wf.msc", L"", L"firewall ports portas defender" },
+    { L"Dispositivos e Impressoras", L"Devices and Printers", L"control.exe|printers", L"", L"printers impressoras devices" },
+    { L"Conexão de Área de Trabalho Remota", L"Remote Desktop Connection", L"mstsc.exe", L"mstsc.exe", L"rdp mstsc remote remoto" },
+    { L"Recursos do Windows", L"Turn Windows features on or off", L"OptionalFeatures.exe", L"OptionalFeatures.exe", L"optional features wsl hyper-v net framework recursos" },
+    { L"Segurança do Windows", L"Windows Security", L"windowsdefender:", L"", L"defender antivirus virus seguranca" },
+    { L"Windows Update", L"Windows Update", L"ms-settings:windowsupdate", L"", L"updates atualizacao atualizar" },
+    { L"Histórico de atualizações", L"Update history", L"ms-settings:windowsupdate-history", L"", L"updates kb atualizacoes" },
+    { L"Sobre o PC", L"About your PC", L"ms-settings:about", L"", L"specs especificacoes rename pc renomear system sistema" },
+    { L"Configurações de Tela", L"Display settings", L"ms-settings:display", L"", L"resolution resolucao scale escala monitor hdr refresh rate hz taxa" },
+    { L"Tela avançada", L"Advanced display", L"ms-settings:display-advanced", L"", L"refresh rate hz taxa de atualizacao monitor" },
+    { L"Gráficos", L"Graphics settings", L"ms-settings:display-advancedgraphics", L"", L"gpu graphics placa de video graficos" },
+    { L"Luz noturna", L"Night light", L"ms-settings:nightlight", L"", L"blue light luz azul" },
+    { L"Configurações de Som", L"Sound settings", L"ms-settings:sound", L"", L"audio volume microphone microfone" },
+    { L"Misturador de Volume", L"Volume mixer", L"ms-settings:apps-volume", L"", L"mixer volume por app audio" },
+    { L"Notificações do Windows", L"Windows notifications", L"ms-settings:notifications", L"", L"notifications avisos toast" },
+    { L"Energia e Suspensão", L"Power and sleep", L"ms-settings:powersleep", L"", L"battery bateria sleep suspender screen off" },
+    { L"Armazenamento", L"Storage settings", L"ms-settings:storagesense", L"", L"storage sense espaco disk space" },
+    { L"Discos e Volumes", L"Disks and volumes", L"ms-settings:disksandvolumes", L"", L"disk ssd drive volume" },
+    { L"Multitarefa", L"Multitasking", L"ms-settings:multitasking", L"", L"snap alt tab virtual desktops" },
+    { L"Para Desenvolvedores", L"For developers", L"ms-settings:developers", L"", L"developer mode desenvolvedor terminal" },
+    { L"Ativação", L"Activation", L"ms-settings:activation", L"", L"license licenca product key chave" },
+    { L"Solução de Problemas", L"Troubleshoot", L"ms-settings:troubleshoot", L"", L"troubleshooter fix corrigir problemas" },
+    { L"Recuperação", L"Recovery", L"ms-settings:recovery", L"", L"reset restaurar advanced startup bios uefi" },
+    { L"Área de Transferência", L"Clipboard settings", L"ms-settings:clipboard", L"", L"clipboard history historico copiar" },
+    { L"Área de Trabalho Remota", L"Remote Desktop settings", L"ms-settings:remotedesktop", L"", L"rdp remote remoto" },
+    { L"Dispositivos Bluetooth", L"Bluetooth devices", L"ms-settings:bluetooth", L"", L"pair parear add device adicionar dispositivo" },
+    { L"Dispositivos conectados", L"Connected devices", L"ms-settings:connecteddevices", L"", L"devices dispositivos" },
+    { L"Configurações de Impressoras", L"Printers and scanners", L"ms-settings:printers", L"", L"printer scanner impressora" },
+    { L"Configurações do Mouse", L"Mouse settings", L"ms-settings:mousetouchpad", L"", L"mouse speed velocidade scroll" },
+    { L"Configurações do Touchpad", L"Touchpad settings", L"ms-settings:devices-touchpad", L"", L"touchpad gestures gestos" },
+    { L"Digitação", L"Typing settings", L"ms-settings:typing", L"", L"keyboard teclado autocorrect" },
+    { L"Reprodução Automática", L"AutoPlay settings", L"ms-settings:autoplay", L"", L"autoplay usb" },
+    { L"Status da Rede", L"Network status", L"ms-settings:network-status", L"", L"internet rede network" },
+    { L"Configurações de Wi-Fi", L"Wi-Fi settings", L"ms-settings:network-wifi", L"", L"wifi wireless rede sem fio" },
+    { L"Ethernet", L"Ethernet settings", L"ms-settings:network-ethernet", L"", L"cabo lan ip dns" },
+    { L"VPN", L"VPN settings", L"ms-settings:network-vpn", L"", L"vpn" },
+    { L"Proxy", L"Proxy settings", L"ms-settings:network-proxy", L"", L"proxy" },
+    { L"Hotspot Móvel", L"Mobile hotspot", L"ms-settings:network-mobilehotspot", L"", L"hotspot roteador compartilhar internet" },
+    { L"Modo Avião", L"Airplane mode", L"ms-settings:network-airplanemode", L"", L"airplane aviao" },
+    { L"Personalização", L"Personalization", L"ms-settings:personalization", L"", L"personalize personalizar theme" },
+    { L"Plano de Fundo do Windows", L"Windows background", L"ms-settings:personalization-background", L"", L"wallpaper papel de parede" },
+    { L"Cores do Windows", L"Windows colors", L"ms-settings:colors", L"", L"dark mode modo escuro accent transparency transparencia" },
+    { L"Temas do Windows", L"Windows themes", L"ms-settings:themes", L"", L"themes temas desktop icons" },
+    { L"Fontes", L"Fonts", L"ms-settings:fonts", L"", L"fonts fontes" },
+    { L"Aplicativos Padrão", L"Default apps", L"ms-settings:defaultapps", L"", L"default browser navegador padrao file association" },
+    { L"Aplicativos de Inicialização", L"Startup apps", L"ms-settings:startupapps", L"", L"startup inicializacao autostart iniciar com o windows" },
+    { L"Recursos Opcionais", L"Optional features", L"ms-settings:optionalfeatures", L"", L"optional features recursos" },
+    { L"Suas Informações", L"Your info", L"ms-settings:yourinfo", L"", L"account conta foto" },
+    { L"Opções de Entrada", L"Sign-in options", L"ms-settings:signinoptions", L"", L"pin password senha hello login" },
+    { L"Outros Usuários", L"Other users", L"ms-settings:otherusers", L"", L"accounts contas family usuario" },
+    { L"Data e Hora", L"Date and time settings", L"ms-settings:dateandtime", L"", L"clock time zone fuso horario relogio" },
+    { L"Idioma e Região", L"Language and region", L"ms-settings:regionlanguage", L"", L"language idioma keyboard layout teclado" },
+    { L"Modo de Jogo do Windows", L"Windows Game Mode", L"ms-settings:gaming-gamemode", L"", L"game mode jogo" },
+    { L"Barra de Jogo", L"Game Bar", L"ms-settings:gaming-gamebar", L"", L"xbox game bar" },
+    { L"Tamanho do Texto", L"Text size", L"ms-settings:easeofaccess-display", L"", L"text size acessibilidade fonte" },
+    { L"Efeitos Visuais", L"Visual effects", L"ms-settings:easeofaccess-visualeffects", L"", L"animations animacoes transparency transparencia" },
+    { L"Privacidade do Windows", L"Windows privacy", L"ms-settings:privacy", L"", L"privacy permissions permissoes" },
+    { L"Permissão da Câmera", L"Camera privacy", L"ms-settings:privacy-webcam", L"", L"camera webcam permission" },
+    { L"Permissão do Microfone", L"Microphone privacy", L"ms-settings:privacy-microphone", L"", L"microphone microfone permission" },
+    { L"Permissão de Localização", L"Location privacy", L"ms-settings:privacy-location", L"", L"location localizacao gps" },
+    { L"Criptografia do Dispositivo", L"Device encryption", L"ms-settings:deviceencryption", L"", L"bitlocker encryption criptografia" },
+};
+const wchar_t WIN_PREFIXO[] = L"win:";  // Result::target dos ajustes do Windows
+struct WinItem { std::wstring pt, en, target, busca; };
+std::vector<WinItem> g_winItems;                // protegido por g_mu
+std::map<std::wstring, std::wstring> g_winIcone;  // target -> de onde vem o ícone; protegido por g_mu
+// target -> bytes do PIDL das tarefas do Painel de Controle (o nome de parse delas não volta a virar item); g_mu
+std::map<std::wstring, std::vector<BYTE>> g_winId;
 
 HWND g_wnd, g_back;
 bool g_glass, g_open, g_visible;  // open: aceita teclado; visible: na tela (inclui a animação de fechar)
@@ -168,6 +277,31 @@ int Score(const std::wstring& name, const std::wstring& q) {
     if (q.size() >= 2 && ini.rfind(q, 0) == 0) return 70;
     if (n.find(q) != std::wstring::npos) return 50;
     return 0;
+}
+
+bool EhWin(const std::wstring& target) { return target.rfind(WIN_PREFIXO, 0) == 0; }
+const wchar_t* NomeWin() { return TrPick(L"Configurações do Windows", L"Windows Settings"); }
+
+// Todas as palavras digitadas começam alguma palavra do ajuste (nome nos dois idiomas + apelidos), em qualquer ordem:
+// "remove programs" e "manager device" acham. "or", "de" e afins não contam.
+bool PalavrasCasam(const std::wstring& busca, const std::wstring& q) {
+    if (q.size() < 3) return false;
+    bool alguma = false;
+    for (size_t a = 0; a < q.size();) {
+        size_t b = q.find(L' ', a);
+        if (b == std::wstring::npos) b = q.size();
+        std::wstring p = q.substr(a, b - a);
+        a = b + 1;
+        if (p.empty()) continue;
+        bool vazia = false;
+        for (auto v : { L"or", L"and", L"the", L"to", L"of", L"de", L"do", L"da", L"ou", L"e", L"&" }) vazia |= p == v;
+        if (vazia) continue;
+        alguma = true;
+        size_t k = busca.find(p);
+        while (k != std::wstring::npos && k > 0 && iswalnum(busca[k - 1])) k = busca.find(p, k + 1);
+        if (k == std::wstring::npos) return false;
+    }
+    return alguma;
 }
 
 bool Skip(const std::wstring& n) {  // atalhos que não são apps (desinstaladores, manuais, sites)
@@ -348,6 +482,91 @@ std::map<std::wstring, int> UserAssistCounts() {
 std::atomic<bool> g_appsScanning, g_appsAgain;
 std::atomic<ULONGLONG> g_appsAt;  // GetTickCount64 da última leitura dos apps
 
+// Na thread do LoadApps (STA), uma vez: listar o Painel de Controle leva ~1 s.
+void LoadWinItems() {
+    static bool feito;
+    if (feito) return;
+    feito = true;
+    std::vector<WinItem> v;
+    std::map<std::wstring, std::wstring> icones;
+    std::map<std::wstring, std::vector<BYTE>> ids;
+    std::set<std::wstring> nomes;
+    const std::wstring cfg = L"shell:AppsFolder\\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel";
+    wchar_t sys[MAX_PATH] = {}, win[MAX_PATH] = {};
+    GetSystemDirectoryW(sys, MAX_PATH);
+    GetWindowsDirectoryW(win, MAX_PATH);
+    auto acha = [&](const std::wstring& f) -> std::wstring {
+        for (auto d : { sys, win }) {
+            std::wstring p = std::wstring(d) + L"\\" + f;
+            if (GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES) return p;
+        }
+        return L"";
+    };
+    for (auto& t : WIN_TOOLS) {
+        std::wstring abre = t.abre, icone;
+        if (abre.find(L':') == std::wstring::npos) {  // um arquivo do Windows
+            size_t corte = abre.find(L'|');
+            std::wstring arq = acha(abre.substr(0, corte));
+            if (arq.empty()) continue;  // não existe nesta edição (gpedit no Home)
+            abre = arq + (corte == std::wstring::npos ? L"" : abre.substr(corte));
+            icone = t.icone[0] ? acha(t.icone) : arq;
+        }
+        if (icone.empty()) icone = cfg;
+        WinItem w{ t.pt, t.en, WIN_PREFIXO + abre, Fold(std::wstring(t.pt) + L" " + t.en + L" " + t.palavras) };
+        nomes.insert(Fold(w.pt)); nomes.insert(Fold(w.en));
+        icones[w.target] = icone;
+        v.push_back(std::move(w));
+    }
+    const size_t fixos = v.size();
+    IShellItem* pasta = nullptr;
+    if (SUCCEEDED(SHCreateItemFromParsingName(L"shell:::{ED7BA470-8E54-465E-825C-99712043E01C}", nullptr, IID_PPV_ARGS(&pasta)))) {
+        IEnumShellItems* en = nullptr;
+        if (SUCCEEDED(pasta->BindToHandler(nullptr, BHID_EnumItems, IID_PPV_ARGS(&en)))) {
+            IShellItem* it = nullptr;
+            while (en->Next(1, &it, nullptr) == S_OK) {
+                PWSTR nome = nullptr, parse = nullptr;
+                PIDLIST_ABSOLUTE id = nullptr;
+                if (SUCCEEDED(SHGetIDListFromObject(it, &id)) && id && SUCCEEDED(it->GetDisplayName(SIGDN_NORMALDISPLAY, &nome)) && SUCCEEDED(it->GetDisplayName(SIGDN_DESKTOPABSOLUTEPARSING, &parse)) &&
+                    nome && parse && nomes.insert(Fold(nome)).second) {
+                    WinItem w{ nome, nome, std::wstring(WIN_PREFIXO) + parse, Fold(nome) };
+                    ids[w.target].assign((const BYTE*)id, (const BYTE*)id + ILGetSize(id));
+                    v.push_back(std::move(w));
+                }
+                CoTaskMemFree(nome); CoTaskMemFree(parse); CoTaskMemFree(id);
+                it->Release();
+            }
+            en->Release();
+        }
+        pasta->Release();
+    }
+    const size_t total = v.size();
+    { std::lock_guard<std::mutex> l(g_mu); g_winItems = std::move(v); g_winIcone = std::move(icones); g_winId = std::move(ids); }
+    Log(L"spotlight: %zu ajustes do Windows (%zu fixos, %zu do Painel de Controle)", total, fixos, total - fixos);
+}
+
+// Abre numa thread: com o disco ocupado o ShellExecute segurava a interface por segundos.
+void AbreWin(const std::wstring& target) {
+    AllowSetForegroundWindow(ASFW_ANY);
+    std::vector<BYTE> bytes;
+    { std::lock_guard<std::mutex> l(g_mu); if (auto it = g_winId.find(target); it != g_winId.end()) bytes = it->second; }
+    std::thread([t = target.substr(wcslen(WIN_PREFIXO)), bytes = std::move(bytes)] {
+        HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+        SHELLEXECUTEINFOW se{ sizeof(se) };
+        se.fMask = SEE_MASK_NOASYNC;
+        se.nShow = SW_SHOWNORMAL;
+        size_t corte = t.find(L'|');
+        std::wstring arq = t.substr(0, corte), args = corte == std::wstring::npos ? L"" : t.substr(corte + 1);
+        if (!bytes.empty()) {  // tarefa do Painel de Controle: pelo item guardado
+            se.fMask |= SEE_MASK_IDLIST; se.lpIDList = (void*)bytes.data();
+        } else {
+            se.lpFile = arq.c_str();
+            if (!args.empty()) se.lpParameters = args.c_str();
+        }
+        if (!ShellExecuteExW(&se)) Log(L"spotlight: ajuste do Windows não abriu (%lu): %ls", GetLastError(), t.c_str());
+        if (SUCCEEDED(ci)) CoUninitialize();
+    }).detach();
+}
+
 void LoadApps() {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     std::vector<LApp> found;
@@ -425,6 +644,8 @@ void LoadApps() {
     }
     { std::lock_guard<std::mutex> l(g_mu); g_apps = std::move(found); }
     g_appsAt = GetTickCount64();
+    if (g_wnd) PostMessageW(g_wnd, WM_SP_APPS, 0, 0);  // os apps aparecem já; os ajustes do Windows levam mais ~1 s
+    LoadWinItems();
     CoUninitialize();
     if (g_wnd) PostMessageW(g_wnd, WM_SP_APPS, 0, 0);
 }
@@ -580,7 +801,7 @@ void SearchFiles(int gen, std::wstring q) {
 std::wstring IconKey(const Result& r) {
     switch (r.kind) {
     case K_APP: return L"app:" + ui::IconStyleKey() + L":" + r.target;  // estilo/cor de destaque na chave
-    case K_SETTING: return L"ajustes";
+    case K_SETTING: return EhWin(r.target) ? r.target : L"ajustes";  // os do Windows têm cada um o seu ícone
     case K_CALC: return L"calc";
     case K_WEB: return L"web";
     default: return L"file:" + r.target;
@@ -678,6 +899,18 @@ void LoadIcon(const Result& copy, const std::wstring& key, int px) {
                     }
                 }
             }
+        } else if (copy.kind == K_SETTING && EhWin(copy.target)) {
+            std::wstring de;
+            std::vector<BYTE> id;
+            {
+                std::lock_guard<std::mutex> l(g_mu);
+                if (auto it = g_winIcone.find(copy.target); it != g_winIcone.end()) de = it->second;
+                if (auto it = g_winId.find(copy.target); it != g_winId.end()) id = it->second;
+            }
+            ok = !id.empty() ? ui::ShellImageId(id, 256, got.w, got.h, got.px)
+                             : !de.empty() && ui::ShellImage(de, 256, got.w, got.h, got.px, true);
+            if (ok) ui::TrimToSquare(got.w, got.h, got.px);
+            else ok = ui::ShellImage(L"shell:AppsFolder\\windows.immersivecontrolpanel_cw5n1h2txyewy!microsoft.windows.immersivecontrolpanel", 256, got.w, got.h, got.px, true);
         } else if (copy.kind == K_SETTING) {
             std::wstring png = apps::PackIconByName(L"System Settings");
             ok = !png.empty() && ui::LoadPng(png, got.w, got.h, got.px);
@@ -1059,6 +1292,20 @@ void Rebuild() {
         if (!s && q.size() >= 3 && Fold(p.words).find(q) != std::wstring::npos) s = 40;  // palavras-chave da página
         if (s) setR.push_back({ K_SETTING, Tr(p.name), p.id, L"", s });
     }
+    if (q.size() >= 2) {  // ajustes e ferramentas do Windows; o que já é um app com esse nome não repete
+        std::set<std::wstring> jaApp;
+        for (auto& a : appsR) jaApp.insert(Fold(a.name));
+        std::lock_guard<std::mutex> l(g_mu);
+        for (auto& w : g_winItems) {
+            int pt = Score(w.pt, q), en = Score(w.en, q), s = std::max(pt, en);
+            if (s < 55 && PalavrasCasam(w.busca, q)) s = 55;
+            if (!s || (q.size() < 3 && s < 70)) continue;  // com duas letras, só começo de palavra ou iniciais
+            // o nome no idioma do WacOS; achado pelo outro idioma, continua mostrando o dele
+            std::wstring nome = TrPick(w.pt.c_str(), w.en.c_str());
+            if (jaApp.count(Fold(w.en)) || jaApp.count(Fold(w.pt))) continue;
+            setR.push_back({ K_SETTING, nome, w.target, L"", s });
+        }
+    }
     auto byScore = [](const Result& a, const Result& b) { return a.score > b.score || (a.score == b.score && a.name.size() < b.name.size()); };
     std::stable_sort(appsR.begin(), appsR.end(), byScore);
     std::stable_sort(setR.begin(), setR.end(), byScore);
@@ -1094,7 +1341,7 @@ void Rebuild() {
     if (hasTop && (!ModeAllows(top.kind) || !ChipAllows(top.kind, top.name))) hasTop = false;  // Tahoe: modo escolhido num círculo
     if (hasTop) groups.push_back({ Tr(L"Melhor Resultado"), { top } });
     take(appsR, K_APP, 5);
-    take(setR, K_SETTING, 3);
+    take(setR, K_SETTING, 5);
     for (Kind k : { K_DOC, K_FOLDER, K_IMAGE, K_MEDIA, K_OTHER }) take(g_files, k, k == K_IMAGE ? 14 : 4);  // imagens: duas fileiras
     if (g_mode == 0) {
         std::vector<Result> web{ { K_WEB, Tr(L"Pesquisar no Google por “") + g_query + L"”", g_query } };
@@ -1278,7 +1525,7 @@ void DrawIcon(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const Result& r,
 std::wstring Accessory(const Result& r) {
     switch (r.kind) {
     case K_APP: return L"";
-    case K_SETTING: return Tr(L"Ajustes do Sistema");
+    case K_SETTING: return EhWin(r.target) ? NomeWin() : Tr(L"Ajustes do Sistema");
     case K_WEB: return L"\x2197";
     case K_CALC: return Tr(L"Calculadora");
     default: {
@@ -2116,7 +2363,7 @@ void Open(int row, bool reveal) {
         }
         break;
     }
-    case K_SETTING: shell::OpenSettings(r.target); break;
+    case K_SETTING: if (EhWin(r.target)) AbreWin(r.target); else shell::OpenSettings(r.target); break;
     case K_CALC:
         if (OpenClipboard(g_wnd)) {
             EmptyClipboard();

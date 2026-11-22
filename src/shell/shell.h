@@ -120,6 +120,8 @@ void StyleIcon(UINT w, UINT h, std::vector<BYTE>& bgra, const std::wstring& styl
 
 // Pixels BGRA pré-multiplicados de um item do shell (exe, atalho, pasta, shell:AppsFolder\...).
 bool ShellImage(const std::wstring& parsingName, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra, bool iconOnly);
+// o mesmo pelos bytes do PIDL: itens cujo nome não volta a virar item (tarefas do Painel de Controle)
+bool ShellImageId(const std::vector<BYTE>& idList, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra);
 // arquivo como no Finder do Mac: miniatura de verdade (foto, vídeo, PDF); sem ela, a folha do Mac com o tipo
 // (comum\docicone.h). Pastas e programas: o ícone do Windows (o ícone do próprio app)
 bool FileImage(const std::wstring& path, int px, UINT& w, UINT& h, std::vector<BYTE>& bgra);

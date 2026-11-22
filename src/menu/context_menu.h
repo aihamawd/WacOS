@@ -73,6 +73,9 @@ struct Item {
     // amostra de cor à esquerda do nome (seletor de cor do TextEdit): 0xFFRRGGBB = a cor; SWATCH_AUTO = "Automática"
     // (metade preta, metade branca); 0 = nenhuma
     UINT32 swatch = 0;
+    // imagem na coluna do ícone (lista da bandeja): img x img pixels BGRA pré-multiplicados, desenhada em 16 pt
+    std::vector<BYTE> imgPx;
+    UINT img = 0;
 };
 const UINT32 SWATCH_AUTO = 0xFE000000;
 int ShowItems(HWND owner, POINT screenPt, const std::vector<Item>& items);

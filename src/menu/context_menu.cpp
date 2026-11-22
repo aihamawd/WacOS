@@ -158,6 +158,8 @@ struct MItem {
     std::vector<MItem> sub;
     wchar_t icon = 0;
     UINT32 swatch = 0;    // amostra de cor na coluna do ícone (ctxmenu::Item::swatch)
+    std::vector<BYTE> imgPx;  // imagem na coluna do ícone (ctxmenu::Item::imgPx)
+    UINT img = 0;
     std::vector<ctxmenu::Dot> dots;
     HMENU src = nullptr;  // submenu original, relido ao abrir (extensões que completam depois)
 };
@@ -785,11 +787,11 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
     L.tf = MakeFormat(M::FONT * sc, DWRITE_FONT_WEIGHT_NORMAL);
     L.tfHdr = MakeFormat(M::HDR_FONT * sc, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     if (Tahoe() && !g_plain)
-        for (auto& m : *items) if (!m.sep && !m.header && !m.icon && !m.swatch && m.dots.empty() && (!Golden() || GoldenIcon(m.label))) m.icon = ctxmenu::AutoIcon(m.label);
+        for (auto& m : *items) if (!m.sep && !m.header && !m.icon && !m.img && !m.swatch && m.dots.empty() && (!Golden() || GoldenIcon(m.label))) m.icon = ctxmenu::AutoIcon(m.label);
     bool hasCheck = false, hasSub = false, hasIcon = false;
     float maxW = 0, maxShort = 0;
     for (auto& m : *items) {
-        hasCheck |= m.checked; hasSub |= HasSub(m); hasIcon |= m.icon != 0 || m.swatch != 0;  // a amostra usa a coluna do ícone
+        hasCheck |= m.checked; hasSub |= HasSub(m); hasIcon |= m.icon != 0 || m.img != 0 || m.swatch != 0;  // a amostra usa a coluna do ícone
         if (!m.sep) maxW = std::max(maxW, TextWidth(m.header ? L.tfHdr : L.tf, m.label));
         if (!m.dots.empty()) maxW = std::max(maxW, (m.dots.size() * DOT_PITCH + 4) * sc);
         if (!m.shortcut.empty()) maxShort = std::max(maxShort, TextWidth(L.tf, m.shortcut));
@@ -1118,6 +1120,15 @@ static void DrawLevel(Session& s, int li) {
         if (m.icon && !m.checked && L.tfIcon) {  // ícone do Tahoe na coluna da esquerda
             wchar_t g[2] = { m.icon, 0 };
             rt->DrawTextW(g, 1, L.tfIcon, D2D1::RectF((IconCx() - 10) * sc, r.top, (IconCx() + 10) * sc, r.bottom), fg);
+        }
+        if (m.img && !m.checked) {  // imagem (ícone do app): 16 pt na coluna do ícone
+            ID2D1Bitmap* bm = nullptr;
+            D2D1_BITMAP_PROPERTIES bp = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+            if (SUCCEEDED(rt->CreateBitmap(D2D1::SizeU(m.img, m.img), m.imgPx.data(), m.img * 4, bp, &bm))) {
+                rt->DrawBitmap(bm, D2D1::RectF((IconCx() - 8) * sc, cy - 8 * sc, (IconCx() + 8) * sc, cy + 8 * sc),
+                               m.disabled ? 0.4f : 1.f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+                bm->Release();
+            }
         }
         if (m.swatch && !m.checked) {  // amostra de cor: quadradinho de 12 com canto 3 e contorno fino
             D2D1_ROUNDED_RECT sw{ D2D1::RectF((IconCx() - 6) * sc, cy - 6 * sc, (IconCx() + 6) * sc, cy + 6 * sc), 3 * sc, 3 * sc };
@@ -1554,6 +1565,7 @@ static std::vector<MItem> ToMItems(const std::vector<ctxmenu::Item>& in) {
         m.shortcut = it.shortcut;
         m.icon = it.icon;
         m.swatch = it.swatch;
+        if (it.img && it.imgPx.size() == (size_t)it.img * it.img * 4) { m.img = it.img; m.imgPx = it.imgPx; }
         m.dots = it.dots;
         m.sub = ToMItems(it.sub);
         out.push_back(std::move(m));

@@ -1308,6 +1308,20 @@ void Click(D2D1_POINT_2F p, bool right) {
             std::wstring name = TrayKey(t);
             if (name.empty()) name = Tr(L"(sem nome)");
             ctxmenu::Item it = I(name, 0);
+            {   // o ícone do app na linha; os de uma cor só (brancos ou pretos) saem na cor do texto do menu
+                it.img = 32;
+                it.imgPx = IconPixels(t.icon, it.img);
+                auto& p = it.imgPx;
+                bool branco = true, preto = true;
+                for (size_t k = 0; k + 3 < p.size(); k += 4) {
+                    if (p[k + 3] < 128) continue;
+                    for (int c = 0; c < 3; c++) { branco &= p[k + c] >= p[k + 3] * 0.85f; preto &= p[k + c] <= p[k + 3] * 0.15f; }
+                }
+                if (branco || preto) {
+                    const bool claro = ui::Dark() && !liquid::Leopard();
+                    for (size_t k = 0; k + 3 < p.size(); k += 4) p[k] = p[k + 1] = p[k + 2] = claro ? p[k + 3] : 0;
+                }
+            }
             it.sub = { I(Tr(L"Abrir"), 1000 + i * 4), I(Tr(L"Menu do App"), 1001 + i * 4), Sep(), I(Tr(L"Mostrar na barra de menus"), 1002 + i * 4, false, IsShown(t)) };
             items.push_back(it);
         }
