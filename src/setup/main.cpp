@@ -395,7 +395,7 @@ static void RegisterUninstall() {
     wstring setup = g_dest + L"\\WacOSSetup.exe";
     RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"DisplayName", L"WacOS");
     RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"DisplayVersion", VersionOf(g_dest));
-    RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"Publisher", L"WacOS (open source)");
+    RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"Publisher", L"WacOS");
     RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"DisplayIcon", setup + L",0");
     RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"InstallLocation", g_dest);
     RegSetStr(HKEY_CURRENT_USER, UNINST_KEY, L"URLInfoAbout", L"https://github.com/renzyxx/WacOS");
@@ -981,8 +981,8 @@ static void Paint() {
         Para(T(L"Você vai escolher se instala o WacOS completo, só os apps ou só as barras de título do Mac. Tudo fica só para o seu usuário, sem administrador, e dá para desfazer depois em Aplicativos instalados.",
                L"You'll choose the full WacOS, only the apps, or only the Mac title bars. Everything is installed for your user only, without administrator rights, and can be undone later in Installed apps."));
         if (!g_pkgVer.empty()) Para(wstring(T(L"Versão: ", L"Version: ")) + g_pkgVer, 12, Fg2());
-        Para(T(L"O WacOS é gratuito e de código aberto (GPL-3.0). Apple, macOS e os nomes e ícones relacionados são da Apple Inc.; este projeto não é afiliado à Apple.",
-               L"WacOS is free and open source (GPL-3.0). Apple, macOS and related names and icons belong to Apple Inc.; this project is not affiliated with Apple."), 11.5f, Fg2());
+        Para(T(L"O WacOS é gratuito para uso pessoal e não comercial. O código-fonte está disponível para consulta, mas não é de código aberto. © 2026 renzyxx. Todos os direitos reservados. Apple, macOS e os nomes e ícones relacionados são da Apple Inc.; este projeto não é afiliado à Apple.",
+               L"WacOS is free for personal, non-commercial use. It is source-available, not open source. © 2026 renzyxx. All rights reserved. Apple, macOS and related names and icons belong to Apple Inc.; this project is not affiliated with Apple."), 11.5f, Fg2());
         showBack = false;
         break;
     case P_HOME: {
@@ -1274,7 +1274,7 @@ static void Foto(const wstring& dir) {
     UINT pw = (UINT)(W * g_k), ph = (UINT)(H * g_k);
     g_instVer = L"build-13"; g_pkgVer = L"build-14"; g_installed = true; g_fromPkg = true;
     g_rel.tag = L"build-14"; g_rel.date = L"20/11/2026"; g_rel.size = 172ull << 20;
-    g_rel.notes = { L"Dynamic Island shows on the desktop again", L"License: GPL-3.0 instead of MIT", L"Mac OS X Leopard theme, Game Mode, apps and title bars without the shell" };
+    g_rel.notes = { L"Dynamic Island shows on the desktop again", L"License: source-available, all rights reserved", L"Mac OS X Leopard theme, Game Mode, apps and title bars without the shell" };
     struct Shot { const wchar_t* name; Page page; Flow flow; Mode mode; float prog; bool ok; };
     Shot shots[] = {
         { L"1-intro", P_INTRO, F_INSTALL, M_FULL, 0, true }, { L"2-home", P_HOME, F_INSTALL, M_FULL, 0, true },
