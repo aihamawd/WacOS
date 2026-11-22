@@ -548,11 +548,21 @@ struct WinCap {
     RECT rect{};                                   // onde estava na última montagem
     std::atomic<bool> relevant{ true };            // está atrás de alguma peça de vidro (senão quadro novo não monta nada)
     std::atomic<bool> fresh{ true };               // chegou quadro desde a última montagem
+    // Fecha numa thread à parte: o GraphicsCaptureSession::Close espera uma trava interna da captura do Windows, e com o
+    // compositor encrencado ela demora segundos ou não volta (22/11/2026, pilha do travamento: rg::RefreshWindows ->
+    // WinCap::Close -> GraphicsCapture!...EnterCriticalSection). Na thread da interface, o vigia via o Shell parado por
+    // 5 s e o reiniciava, de novo e de novo.
     void Close() {
-        try { if (session) session.Close(); if (pool) pool.Close(); } catch (...) {}
-        std::lock_guard<std::mutex> lk(m);
-        try { if (frame) frame.Close(); } catch (...) {}
-        frame = nullptr;
+        auto s = std::move(session); auto p = std::move(pool);
+        session = nullptr; pool = nullptr;
+        wgc::Direct3D11CaptureFrame f{ nullptr };
+        { std::lock_guard<std::mutex> lk(m); f = std::move(frame); frame = nullptr; }
+        if (!s && !p && !f) return;
+        std::thread([s = std::move(s), p = std::move(p), f = std::move(f)]() mutable {
+            try { if (s) s.Close(); } catch (...) {}
+            try { if (p) p.Close(); } catch (...) {}
+            try { if (f) f.Close(); } catch (...) {}
+        }).detach();
     }
 };
 std::vector<std::shared_ptr<WinCap>> caps;  // de baixo para cima

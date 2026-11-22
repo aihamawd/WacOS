@@ -1145,3 +1145,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 [2026-11-22 16:05] Ilha Dinâmica, área de transferência (o usuário: "fica apenas 1 clipboard salvo, temos que deixar pelo menos 10"): o histórico ficava só na memória (cada reinício do Shell zerava) e a aba mostrava só as 4 primeiras. src\shell\ilha.cpp: guarda os últimos 20 em %APPDATA%\Shell\ilha-copias.bin, cifrado para o usuário (DPAPI), gravado numa thread; carrega ao ligar a ilha; a lista rola com a roda (g_clipTop, barrinha fina à direita). "Limpar" apaga o arquivo. O que os gerenciadores de senha marcam continua fora.
   Não testado copiando de verdade (copiar daqui trocaria a área de transferência do usuário).
   DESFAZER: reverter o commit.
+
+[2026-11-22 16:20] Travamento do Shell, causa achada (pilha às 14:42, com o Wobbly Windows já desligado): o vidro real fechava a captura de uma janela (WinCap::Close -> GraphicsCaptureSession::Close) na thread da interface e o Windows.Graphics.Capture ficava preso numa trava interna; o vigia reiniciava o Shell. Ao mesmo tempo o vidro sumiu da tela: o compositor (dwm.exe) ficou encrencado depois do Wobbly Windows, que mexe nele por dentro, e a captura de janelas parou de entregar quadros.
+  src\shell\backdrop.cpp: WinCap::Close() fecha a sessão, o pool e o último quadro numa thread à parte.
+  Para o vidro voltar com o compositor nesse estado: Win+Ctrl+Shift+B (reinicia o driver de vídeo) ou sair e entrar no Windows.
+  DESFAZER: reverter o commit.
