@@ -1136,3 +1136,8 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 
 [2026-11-22 15:05] Canto quadrado em volta das janelas (visto no GIMP, issue #26, mas valia para todas desde o squircle): SqSdf() devolvia a distância até a borda reta para um pixel fora dela mas ainda na zona do canto; o contorno de 1 px da moldura seguia reto até a quina e formava um quadradinho escuro em volta do canto arredondado. Agora a distância é até a curva. Conferido pelos pixels do canto do GIMP: fora do arco só o fundo.
   DESFAZER: reverter o commit.
+
+[2026-11-22 15:55] Shell travando e sendo reiniciado pelo vigia a cada poucos minutos (o usuário: "algo crashando e travando o tempo todo"). Pilhas tiradas com o cdb (-pv) no momento do travamento, duas vezes: a thread da interface presa em Log -> fflush -> WriteFile (chamado pelo vidro real, backdrop.cpp, rg::MsgProc). Gravar o shell.log demorava segundos (disco ocupado: torrent, antivírus/agente) e o vigia, sem resposta por 5 s, reiniciava o Shell.
+  src\shell\main.cpp: Log() só monta a linha e põe numa fila; uma thread própria grava no arquivo (LogGrava); no fim do Shell o que falta é gravado (LogDescarrega). Fila limitada a 4 MB.
+  Obs.: o Windhawk foi ligado às 13:57 (Wobbly Windows dentro do dwm.exe); nenhum mod dele roda no Shell (só o windhawk.dll do motor).
+  DESFAZER: reverter o commit.

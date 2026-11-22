@@ -10,6 +10,8 @@
 #include <map>
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include <mmsystem.h>
 #pragma comment(lib, "winmm.lib")
 
@@ -280,12 +282,46 @@ static void KeyThread() {
     if (g_kbHook) UnhookWindowsHookEx(g_kbHook);
 }
 
+// O log vai para o disco numa thread própria. Gravando direto (fwprintf + fflush a cada linha), a thread da interface
+// ficava presa no WriteFile quando o disco demorava (torrent, antivírus, agente de monitoramento): o vigia via o Shell
+// sem responder por 5 s e o reiniciava, várias vezes seguidas (22/11/2026: as duas pilhas tiradas no travamento
+// estavam no Log -> fflush -> WriteFile, chamado pelo vidro real).
+static std::mutex g_logMx, g_logDisco;
+static std::condition_variable g_logCv;
+static std::wstring g_logFila;
+static void LogGrava() {  // o que está na fila vai para o arquivo (só uma thread grava de cada vez)
+    std::wstring s;
+    { std::lock_guard<std::mutex> l(g_logMx); s.swap(g_logFila); }
+    if (s.empty() || !g_log) return;
+    std::lock_guard<std::mutex> d(g_logDisco);
+    fputws(s.c_str(), g_log); fflush(g_log);
+}
+static void LogDescarrega() { LogGrava(); }  // fim do Shell: o que faltou vai junto
+
 void Log(const wchar_t* fmt, ...) {
     if (!g_log) return;
     SYSTEMTIME st; GetLocalTime(&st);
-    fwprintf(g_log, L"%02d:%02d:%02d ", st.wHour, st.wMinute, st.wSecond);
-    va_list a; va_start(a, fmt); vfwprintf(g_log, fmt, a); va_end(a);
-    fputwc(L'\n', g_log); fflush(g_log);
+    wchar_t pre[16]; swprintf_s(pre, L"%02d:%02d:%02d ", st.wHour, st.wMinute, st.wSecond);
+    va_list a; va_start(a, fmt);
+    va_list b; va_copy(b, a);
+    int n = _vscwprintf(fmt, a);
+    std::wstring linha;
+    if (n > 0) { linha.resize((size_t)n + 1); vswprintf_s(linha.data(), linha.size(), fmt, b); linha.resize((size_t)n); }
+    va_end(b); va_end(a);
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::thread([] {
+            for (;;) {
+                { std::unique_lock<std::mutex> l(g_logMx); g_logCv.wait(l, [] { return !g_logFila.empty(); }); }
+                LogGrava();
+            }
+        }).detach();
+    });
+    {
+        std::lock_guard<std::mutex> l(g_logMx);
+        if (g_logFila.size() < 4 * 1024 * 1024) { g_logFila += pre; g_logFila += linha; g_logFila += L'\n'; }  // disco parado de vez: não cresce sem fim
+    }
+    g_logCv.notify_one();
 }
 
 std::wstring shell::Setting(const wchar_t* key, const wchar_t* def) {
@@ -1155,6 +1191,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     // encerramento do C++ (fecha todos os arquivos, inclusive o log; OleUninitialize desmonta o COM) com as
     // threads de fundo (vidro real, índice, notificações) ainda rodando: elas escreviam no log fechado e o
     // Shell caía ao reiniciar (0xC0000005), e o Windows segurava o processo morto no relatório de erro.
+    LogDescarrega();
     if (g_log) fflush(g_log);
     ReleaseMutex(single);
     TerminateProcess(GetCurrentProcess(), 0);
@@ -1241,6 +1278,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     Restore();
     DeregisterShellHookWindow(g_msg);
     Log(L"Shell nativo encerrado");
+    LogDescarrega();
     if (g_log) fflush(g_log);
     return 0;
 }
