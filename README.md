@@ -15,6 +15,7 @@
 ![C++](https://img.shields.io/badge/C%2B%2B-native-00599C?style=flat&logo=cplusplus&logoColor=white)
 
 [![Download WacOS](https://img.shields.io/badge/DOWNLOAD-WacOS_for_Windows_11-0A84FF?style=for-the-badge&logo=windows11&logoColor=white)](https://github.com/renzyxx/WacOS/releases/latest)
+[![Join the WacOS Discord](https://img.shields.io/badge/DISCORD-Join_us-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/bDVydgSKPv)
 [![Buy me a coffee](https://img.shields.io/badge/BUY_ME_A_COFFEE-renzyx-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/renzyx)
 
 </div>
