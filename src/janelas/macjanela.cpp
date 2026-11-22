@@ -856,8 +856,13 @@ void UpdateCorners(Info* in, RECT vis) {
     if (!in->rgn.cx || (in->moving && !(!in->custom && PintaBarraNaFaixa(h))) || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h) || Fullscreen(h)) { HideCorners(in); return; }
     int r = CornerRadius(h), S = (int)std::ceil(SqExt((float)r, (vis.right - vis.left) / 2.f, (vis.bottom - vis.top) / 2.f)) + 2;
     // cor embaixo: só lê da tela quando o ponto é mesmo desta janela (não coberto por outra)
+    // GTK (GIMP 3, Deluge) e quem desenha pela placa de vídeo: as bordas da moldura (lados e embaixo) que o PaintNC pinta
+    // com GDI também não aparecem; ficavam transparentes, e a cor lida embaixo era a do que está atrás (issue #26). A
+    // moldura pinta essas bordas na cor da barra. Aí a tela nem é lida: a moldura delas acompanha o arraste, e cada
+    // GetPixel da tela espera o compositor (duas esperas por movimento, dentro do app: o arraste engasgava).
+    const bool ncPinta = !in->custom && PintaBarraNaFaixa(h);
     HDC screen = GetDC(nullptr);
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2 && !ncPinta; i++) {
         POINT p{ i ? vis.right - 4 : vis.left + 3, vis.bottom - S - 2 };
         HWND at = WindowFromPoint(p);
         if (at && GetAncestor(at, GA_ROOT) == h) {
@@ -865,10 +870,6 @@ void UpdateCorners(Info* in, RECT vis) {
             if (c != CLR_INVALID) in->bottom[i] = c;
         }
     }
-    // GTK (GIMP 3) e quem desenha pela placa de vídeo: as bordas da moldura (lados e embaixo) que o PaintNC pinta com
-    // GDI também não aparecem; ficavam transparentes, e a cor lida embaixo era a do que está atrás (issue #26). A
-    // moldura pinta essas bordas na cor da barra.
-    const bool ncPinta = !in->custom && PintaBarraNaFaixa(h);
     if (ncPinta) in->bottom[0] = in->bottom[1] = CapColor(in);
     // Em cima, cada canto com a cor dele quando é o app que desenha ali (barra unificada dos apps do WacOS). Com uma
     // cor só (a mais comum na faixa de cima), o Tempo com a lateral clara e o céu escuro ganhava um arco escuro

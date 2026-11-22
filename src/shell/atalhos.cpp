@@ -14,6 +14,9 @@
 #include <knownfolders.h>
 #include <map>
 #include <memory>
+#include <chrono>
+#include <future>
+#include <mutex>
 #include <thread>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -284,7 +287,8 @@ std::vector<atalhos::Item> ShellRecent(const std::wstring& exe, int max) {
 
 }  // namespace
 
-std::vector<atalhos::Item> atalhos::Tasks(const std::wstring& exePath) {
+static std::vector<atalhos::Item> TasksDisco(const std::wstring& exePath) {
+    using atalhos::Item;
     std::vector<Item> out;
     if (exePath.empty()) return out;
     std::wstring want = Lower(exePath);
@@ -303,7 +307,8 @@ std::vector<atalhos::Item> atalhos::Tasks(const std::wstring& exePath) {
     return out;
 }
 
-std::vector<atalhos::Item> atalhos::Recent(const std::wstring& aumid, const std::wstring& exePath, int max) {
+static std::vector<atalhos::Item> RecentDisco(const std::wstring& aumid, const std::wstring& exePath, int max) {
+    using atalhos::Item;
     std::vector<Item> out;
     std::wstring file = Lower(PathFindFileNameW(exePath.c_str()));
     // apps que guardam a lista por conta própria (não usam a do Windows)
@@ -426,4 +431,33 @@ void atalhos::Run(const Item& it) {
     if (it.recent) { ShellExecuteW(nullptr, L"open", it.path.c_str(), nullptr, nullptr, SW_SHOWNORMAL); return; }
     ShellExecuteW(nullptr, L"open", it.path.c_str(), it.args.empty() ? nullptr : it.args.c_str(), it.dir.empty() ? nullptr : it.dir.c_str(), SW_SHOWNORMAL);
     Log(L"atalhos: \"%ls\" (%ls %ls)", it.title.c_str(), it.path.c_str(), it.args.c_str());
+}
+
+// O menu do Dock lia esses arquivos na thread da interface: com o disco ocupado o Shell inteiro parava no CreateFileW
+// (pilha do travamento de 22/11/2026, 14:50). A leitura vai numa thread, uma de cada vez, e o menu espera até 300 ms;
+// passou disso, abre sem esses itens (a leitura termina e deixa tudo guardado para a próxima vez).
+template <class F> static std::vector<atalhos::Item> ComPrazo(F ler) {
+    static std::mutex um;
+    auto pr = std::make_shared<std::promise<std::vector<atalhos::Item>>>();
+    auto fu = pr->get_future();
+    std::thread([pr, ler] {
+        HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+        std::vector<atalhos::Item> r;
+        { std::lock_guard<std::mutex> l(um); r = ler(); }
+        if (SUCCEEDED(hr)) CoUninitialize();
+        pr->set_value(std::move(r));
+    }).detach();
+    if (fu.wait_for(std::chrono::milliseconds(300)) != std::future_status::ready) {
+        Log(L"atalhos: o disco demorou; o menu abre sem os itens do app");
+        return {};
+    }
+    return fu.get();
+}
+
+std::vector<atalhos::Item> atalhos::Tasks(const std::wstring& exePath) {
+    return ComPrazo([exePath] { return TasksDisco(exePath); });
+}
+
+std::vector<atalhos::Item> atalhos::Recent(const std::wstring& aumid, const std::wstring& exePath, int max) {
+    return ComPrazo([aumid, exePath, max] { return RecentDisco(aumid, exePath, max); });
 }

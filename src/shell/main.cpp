@@ -1098,7 +1098,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     g_log = _wfsopen((shell::dir + L"\\shell.log").c_str(), L"w, ccs=UTF-8", _SH_DENYNO);
     Log(L"Shell iniciando");
     OleInitialize(nullptr);
-    ctxmenu::Init(hi, g_log);
+    ctxmenu::Init(hi, nullptr);  // sem log: o menu gravava e esperava o disco na thread da interface (mesma trava do arquivo do Log)
     if (!ui::Init()) { Log(L"erro: Direct2D/DirectWrite"); return 1; }
     LoadSettings();
     migrar::Registro();  // caminhos com o nome velho (Sequoia) no registro do Windows (depois dos ajustes: grava um)
@@ -1212,7 +1212,7 @@ int shell::RodarNativo(HINSTANCE hi, const std::wstring& dirBin, const std::wstr
     g_log = _wfsopen(logPath.c_str(), L"w, ccs=UTF-8", _SH_DENYNO);
     Log(L"Shell nativo iniciando dentro do explorer (pid %lu), pasta %ls", GetCurrentProcessId(), dirBin.c_str());
     OleInitialize(nullptr);
-    ctxmenu::Init(hi, g_log);
+    ctxmenu::Init(hi, nullptr);  // sem log: o menu gravava e esperava o disco na thread da interface (mesma trava do arquivo do Log)
     if (!ui::Init()) { Log(L"erro: Direct2D/DirectWrite"); return 1; }
     LoadSettings();
     SystemParametersInfoW(SPI_GETWORKAREA, 0, &g_origWork, 0);

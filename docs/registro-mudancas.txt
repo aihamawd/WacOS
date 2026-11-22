@@ -1150,3 +1150,19 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   src\shell\backdrop.cpp: WinCap::Close() fecha a sessão, o pool e o último quadro numa thread à parte.
   Para o vidro voltar com o compositor nesse estado: Win+Ctrl+Shift+B (reinicia o driver de vídeo) ou sair e entrar no Windows.
   DESFAZER: reverter o commit.
+
+[2026-11-22 15:06, hora do PC] Travamentos do Shell: auditoria completa. CORRIGE as entradas de hoje sobre esse assunto (os horários delas saíram adiantados).
+  O que estava errado nas conclusões anteriores:
+   - "o compositor ficou encrencado pelo Wobbly Windows, só reiniciando": falso. O acrílico do Windows testado com duas janelas sem nada do WacOS funciona, e o vidro do Dock também (fotos apagadas).
+   - os dois reinícios das 14:24 foram causados pelo vigia de depuração criado nesta sessão (cdb -pv congela o processo por 6-10 s). As pilhas em WriteFile dali não provavam sozinhas que o log era a causa.
+   - 9afefec (captura fechada fora da interface) não bastou: o Shell travou de novo às 14:51.
+   - a janela GTK que seguia no vidro com o GIMP fechado é do Deluge: o conserto do GIMP vale para todo app GTK.
+  O que as medidas mostram: C: a 0% livre, fila 8-15, 24-40 ms por transferência; pilhas paradas em CreateFileW (menu do Dock), WriteFile (log) e numa trava do GraphicsCapture; arranques com "menus pré-carregados" em 3,8-5,6 s (normal 0,5 s). O vigia matava o Shell com 5/10 s e cada reinício relia tudo do disco, sem Dock e sem vidro por 10-20 s.
+  Mudanças:
+   - src\shell\atalhos.cpp: Tasks/Recent leem o disco numa thread; o menu do Dock espera até 300 ms.
+   - src\shell\main.cpp: o menu de contexto do Shell não grava mais no log (esperava a mesma trava do arquivo).
+   - src\shell\mesa.cpp: vigia em 15 s sem resposta / 20 s sem pulso (eram 5 / 10).
+   - src\janelas\macjanela.cpp: janelas GTK não leem mais a tela 2 vezes por movimento no arraste (regressão de 8188a40).
+   - desfeitos bf271c0 e a8704a8 (remendos do Wobbly Windows): não resolviam e mexiam na barra de todos os apps.
+  Conferido: compilado, instalado (hashes iguais), 600 medidas em 5 min: maior resposta 5 ms, nenhum reinício. NÃO conferido: sob disco saturado, arrastando de verdade, menu do Dock clicado, e por que o vidro sumiu da tela do usuário com o GIMP aberto.
+  DESFAZER: reverter o commit.

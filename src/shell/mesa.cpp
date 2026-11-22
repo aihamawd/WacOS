@@ -2108,7 +2108,7 @@ bool mesa::Watchdog(const wchar_t* cmdLine) {
             DWORD now = GetTickCount();
             if (now - lastLoop > 5000) { pulseSince = now; hungSince = 0; }  // o PC dormiu: não conta como travado
             lastLoop = now;
-            // pulso parado há 10 s: a interface está presa, mesmo respondendo a mensagens
+            // pulso parado há 20 s: a interface está presa, mesmo respondendo a mensagens
             if (!pulse) {
                 if (!pulseMap) pulseMap = OpenFileMappingW(FILE_MAP_READ, FALSE, pn);
                 if (pulseMap) pulse = (const volatile LONG*)MapViewOfFile(pulseMap, FILE_MAP_READ, 0, 0, sizeof(LONG));
@@ -2116,16 +2116,17 @@ bool mesa::Watchdog(const wchar_t* cmdLine) {
             if (pulse) {
                 LONG v = *pulse;
                 if (v != lastPulse) { lastPulse = v; pulseSince = now; }
-                else if (now - pulseSince > 10000) restart(L"o Shell parou (sem pulso há 10 s); reiniciando");
+                else if (now - pulseSince > 20000) restart(L"o Shell parou (sem pulso há 20 s); reiniciando");
                 if (done) break;
             }
-            // a janela do Shell não responde há 5 s: reinicia
+            // a janela do Shell não responde há 15 s: reinicia (eram 5 s: com o disco cheio de serviço a espera de um arquivo
+            // virava reinício, e reiniciar leva 10-20 s, sem Dock e sem vidro: pior que a espera, 22/11/2026)
             HWND sw = shellWindow();
             DWORD_PTR res = 0;
             bool hung = sw && !SendMessageTimeoutW(sw, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 1000, &res);
             if (!hung) { hungSince = 0; continue; }
             if (!hungSince) hungSince = GetTickCount();
-            if (GetTickCount() - hungSince > 5000) restart(L"o Shell não responde há 5 s; reiniciando");
+            if (GetTickCount() - hungSince > 15000) restart(L"o Shell não responde há 15 s; reiniciando");
             if (done) break;
         }
         UnregisterHotKey(nullptr, 1);
