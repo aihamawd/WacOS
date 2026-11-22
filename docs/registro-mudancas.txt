@@ -1133,3 +1133,6 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Wobbly Windows (wobbly-windows, dentro do dwm.exe): a janela deforma no compositor; as nossas janelas por cima não têm como acompanhar a deformação. Sem correção.
   Não testado com arraste de verdade (sem SendInput); no PC o Window Wobble está desligado no Windhawk e o Wobbly Windows ligado.
   DESFAZER: reverter o commit.
+
+[2026-11-22 15:05] Canto quadrado em volta das janelas (visto no GIMP, issue #26, mas valia para todas desde o squircle): SqSdf() devolvia a distância até a borda reta para um pixel fora dela mas ainda na zona do canto; o contorno de 1 px da moldura seguia reto até a quina e formava um quadradinho escuro em volta do canto arredondado. Agora a distância é até a curva. Conferido pelos pixels do canto do GIMP: fora do arco só o fundo.
+  DESFAZER: reverter o commit.

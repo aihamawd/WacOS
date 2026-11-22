@@ -308,7 +308,10 @@ inline float SqSdf(float x, float y, float hw, float hh, float r, float* qxo = n
     const SqPerfil& P = PerfilSq(R);
     if (qxo) *qxo = P.p - dx;
     if (qyo) *qyo = P.p - dy;
-    if (dx >= P.p || dy >= P.p || dx < 0 || dy < 0) return -std::min(dx, dy);
+    if (dx >= P.p || dy >= P.p) return -std::min(dx, dy);
+    // fora da borda reta mas ainda na zona do canto: a distância é até a curva, não até a reta. Antes saía -min(dx, dy)
+    // e o contorno de 1 px seguia reto até a quina: um quadradinho escuro em volta do canto arredondado (issue #26)
+    if (dx < 0 || dy < 0) return P.Dist(std::max(dx, 0.f), std::max(dy, 0.f)) + std::max(-dx, -dy);
     float dist = P.Dist(dx, dy);
     return dy > P.Yat(dx) ? -dist : dist;
 }
