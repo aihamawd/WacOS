@@ -1141,3 +1141,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   src\shell\main.cpp: Log() só monta a linha e põe numa fila; uma thread própria grava no arquivo (LogGrava); no fim do Shell o que falta é gravado (LogDescarrega). Fila limitada a 4 MB.
   Obs.: o Windhawk foi ligado às 13:57 (Wobbly Windows dentro do dwm.exe); nenhum mod dele roda no Shell (só o windhawk.dll do motor).
   DESFAZER: reverter o commit.
+
+[2026-11-22 16:05] Ilha Dinâmica, área de transferência (o usuário: "fica apenas 1 clipboard salvo, temos que deixar pelo menos 10"): o histórico ficava só na memória (cada reinício do Shell zerava) e a aba mostrava só as 4 primeiras. src\shell\ilha.cpp: guarda os últimos 20 em %APPDATA%\Shell\ilha-copias.bin, cifrado para o usuário (DPAPI), gravado numa thread; carrega ao ligar a ilha; a lista rola com a roda (g_clipTop, barrinha fina à direita). "Limpar" apaga o arquivo. O que os gerenciadores de senha marcam continua fora.
+  Não testado copiando de verdade (copiar daqui trocaria a área de transferência do usuário).
+  DESFAZER: reverter o commit.

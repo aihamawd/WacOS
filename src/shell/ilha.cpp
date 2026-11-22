@@ -49,6 +49,8 @@
 #pragma comment(lib, "windowsapp.lib")
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "crypt32.lib")
+#include <wincrypt.h>
 
 namespace wmc = winrt::Windows::Media::Control;
 
@@ -150,6 +152,8 @@ float g_bars[4];
 
 // ---- Transferência (só na memória) e Estante (%APPDATA%\Shell\estante.txt)
 std::deque<std::wstring> g_clips;
+int g_clipTop;  // primeira linha à vista (a lista rola com a roda)
+const int CLIP_MAX = 20, CLIP_ROWS = 4;
 bool g_selfCopy;
 std::vector<std::wstring> g_shelf;
 std::map<std::wstring, ID2D1Bitmap*> g_shelfIcons;
@@ -682,6 +686,51 @@ struct DropTarget : IDropTarget {
 } g_dropTgt;
 
 // ================= Transferência
+// O histórico ficava só na memória: a cada vez que o Shell reiniciava sobrava só o que estava copiado agora ("fica
+// apenas 1 clipboard salvo", 22/11/2026). Agora fica num arquivo, cifrado para este usuário (DPAPI), com os últimos 20.
+// O que gerenciadores de senha marcam para ficar fora de históricos continua fora (ReadClipboard).
+std::wstring ClipsPath() {
+    PWSTR p = nullptr; std::wstring f;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_RoamingAppData, 0, nullptr, &p))) { f = std::wstring(p) + L"\\Shell\\ilha-copias.bin"; CoTaskMemFree(p); }
+    return f;
+}
+void SaveClips() {
+    std::wstring all;
+    for (auto& c : g_clips) { all += c; all.push_back(L'\0'); }
+    std::wstring path = ClipsPath();
+    if (path.empty()) return;
+    std::thread([all = std::move(all), path] {
+        if (all.empty()) { DeleteFileW(path.c_str()); return; }
+        DATA_BLOB in{ (DWORD)(all.size() * sizeof(wchar_t)), (BYTE*)all.data() }, out{};
+        if (!CryptProtectData(&in, L"WacOS", nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) return;
+        HANDLE f = CreateFileW((path + L".tmp").c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (f != INVALID_HANDLE_VALUE) {
+            DWORD w = 0; BOOL ok = WriteFile(f, out.pbData, out.cbData, &w, nullptr);
+            CloseHandle(f);
+            if (ok) MoveFileExW((path + L".tmp").c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+        }
+        LocalFree(out.pbData);
+    }).detach();
+}
+void LoadClips() {
+    std::wstring path = ClipsPath();
+    HANDLE f = path.empty() ? INVALID_HANDLE_VALUE : CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
+    if (f == INVALID_HANDLE_VALUE) return;
+    std::vector<BYTE> buf(GetFileSize(f, nullptr));
+    DWORD r = 0; BOOL ok = !buf.empty() && buf.size() < 8 * 1024 * 1024 && ReadFile(f, buf.data(), (DWORD)buf.size(), &r, nullptr);
+    CloseHandle(f);
+    if (!ok) return;
+    DATA_BLOB in{ r, buf.data() }, out{};
+    if (!CryptUnprotectData(&in, nullptr, nullptr, nullptr, nullptr, CRYPTPROTECT_UI_FORBIDDEN, &out)) return;
+    const wchar_t* s = (const wchar_t*)out.pbData; size_t n = out.cbData / sizeof(wchar_t), i = 0;
+    while (i < n && (int)g_clips.size() < CLIP_MAX) {
+        size_t j = i; while (j < n && s[j]) j++;
+        if (j > i) g_clips.emplace_back(s + i, j - i);
+        i = j + 1;
+    }
+    LocalFree(out.pbData);
+}
+
 void ReadClipboard() {
     static UINT exclude = RegisterClipboardFormatW(L"ExcludeClipboardContentFromMonitorProcessing");
     static UINT history = RegisterClipboardFormatW(L"CanIncludeInClipboardHistory");
@@ -702,7 +751,9 @@ void ReadClipboard() {
     s = s.substr(a, b - a + 1);
     g_clips.erase(std::remove(g_clips.begin(), g_clips.end(), s), g_clips.end());
     g_clips.push_front(s);
-    while (g_clips.size() > 12) g_clips.pop_back();
+    while ((int)g_clips.size() > CLIP_MAX) g_clips.pop_back();
+    g_clipTop = 0;
+    SaveClips();
 }
 
 void CopyText(const std::wstring& s) {
@@ -1203,8 +1254,17 @@ void DrawClip(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, D2D1_RECT_F b, f
         return;
     }
     float rowH = 23, y = y0;
-    for (int i = 0; i < (int)g_clips.size() && i < 4; i++, y += rowH) {
-        D2D1_RECT_F r = D2D1::RectF(L, y, R - (i == 0 ? 44 : 0), y + rowH - 2);
+    const int n = (int)g_clips.size();
+    g_clipTop = std::clamp(g_clipTop, 0, std::max(0, n - CLIP_ROWS));
+    const bool rola = n > CLIP_ROWS;
+    if (rola) {  // barrinha de rolagem fina à direita (a roda rola a lista)
+        float trackT = y0 + 24, trackB = y0 + CLIP_ROWS * rowH - 2, th = std::max(10.f, (trackB - trackT) * CLIP_ROWS / n);
+        float ty = trackT + (trackB - trackT - th) * g_clipTop / std::max(1, n - CLIP_ROWS);
+        br->SetColor(D2D1::ColorF(1, 1, 1, 0.30f));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(R - 3, ty, R, ty + th), 1.5f, 1.5f), br);
+    }
+    for (int i = g_clipTop; i < n && i < g_clipTop + CLIP_ROWS; i++, y += rowH) {
+        D2D1_RECT_F r = D2D1::RectF(L, y, R - (i == g_clipTop ? 44 : rola ? 6 : 0), y + rowH - 2);
         if (Hover(H_CLIP, i)) Chip(dc, br, r, ChipR(rowH - 2) * 0.8f, 1);
         std::wstring s = g_clips[i];
         for (auto& c : s) if (c == L'\r' || c == L'\n' || c == L'\t') c = L' ';
@@ -1682,7 +1742,7 @@ void ClickHit(const Hit& h, D2D1_POINT_2F p) {
     case H_CLIP:
         if (h.arg < (int)g_clips.size()) { CopyText(g_clips[h.arg]); g_flashClip = h.arg; g_flashAt = anim::Now(); SetTimer(g_wnd, TM_TICK + 100, 1250, nullptr); }
         break;
-    case H_CLIPCLR: g_clips.clear(); break;
+    case H_CLIPCLR: g_clips.clear(); g_clipTop = 0; SaveClips(); break;
     case H_SHELF:
         if (h.arg < (int)g_shelf.size()) ShellExecuteW(nullptr, L"open", g_shelf[h.arg].c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         break;
@@ -1797,6 +1857,13 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
             break;
         }
         return 0;
+    case WM_MOUSEWHEEL:
+        if (g_mode == M_OPEN && g_tab == TAB_CLIP && (int)g_clips.size() > CLIP_ROWS) {
+            int top = std::clamp(g_clipTop - GET_WHEEL_DELTA_WPARAM(w) / WHEEL_DELTA, 0, (int)g_clips.size() - CLIP_ROWS);
+            if (top != g_clipTop) { g_clipTop = top; if (!g_running) Paint(); }
+            return 0;
+        }
+        break;
     case WM_MOUSEMOVE: {
         D2D1_POINT_2F p = Pt(l);
         if (!g_hoverIn) {
@@ -1951,6 +2018,7 @@ void ilha::Reload() {
             threads = true;
             StartPrivacy();
             std::thread(DownloadsThread).detach();
+            if (g_clips.empty()) LoadClips();
             AddClipboardFormatListener(g_wnd);
         }
     }
