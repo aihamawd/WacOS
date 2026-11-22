@@ -73,8 +73,19 @@ int Target(HWND h, RECT* t) {
     return 0;
 }
 
+const UINT WM_EN_FRAME = WM_APP + 140;
+double g_fadeAt;  // quando a prévia começou a aparecer
+
 LRESULT CALLBACK PrevProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (m == WM_NCHITTEST) return HTTRANSPARENT;
+    if (m == WM_EN_FRAME) {  // aparecendo: ~90 ms, um passo por quadro da tela (eram 4 passos de um timer de 15,6 ms)
+        if (!g_kind || g_alpha == 255) { ui::FrameClock(h, WM_EN_FRAME, false); return 0; }
+        double t = std::clamp((anim::Now() - g_fadeAt) / 90.0, 0.0, 1.0);
+        g_alpha = (BYTE)(60 + 195 * (1 - (1 - t) * (1 - t)));
+        BLENDFUNCTION bf{ AC_SRC_OVER, 0, g_alpha, AC_SRC_ALPHA };
+        UpdateLayeredWindow(h, nullptr, nullptr, nullptr, nullptr, nullptr, 0, &bf, ULW_ALPHA);
+        return 0;
+    }
     return DefWindowProcW(h, m, w, l);
 }
 
@@ -135,15 +146,8 @@ void Hide() {
 }
 
 void Show(int kind, RECT t) {
-    if (kind == g_kind && EqualRect(&t, &g_target)) {
-        if (g_alpha < 255) {  // aparecendo: ~100 ms
-            g_alpha = (BYTE)std::min(255, g_alpha + 50);
-            BLENDFUNCTION bf{ AC_SRC_OVER, 0, g_alpha, AC_SRC_ALPHA };
-            UpdateLayeredWindow(g_prev, nullptr, nullptr, nullptr, nullptr, nullptr, 0, &bf, ULW_ALPHA);
-        }
-        return;
-    }
-    if (!g_kind) g_alpha = 60;
+    if (kind == g_kind && EqualRect(&t, &g_target)) return;
+    if (!g_kind) { g_alpha = 60; g_fadeAt = anim::Now(); ui::FrameClock(g_prev, WM_EN_FRAME, true); }
     g_kind = kind; g_target = t;
     Draw(t, g_drag);
     // logo atrás da janela arrastada (acima das outras)

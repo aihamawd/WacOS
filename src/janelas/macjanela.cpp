@@ -6,6 +6,7 @@
 // Tudo é desfeito com a mensagem "MacJanelaDesfazer" (o Shell manda ao sair).
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
+#define SEMAFORO_SEM_ESPERA  // antes dos includes, igual nos dois .cpp da DLL (semaforo.h)
 #include <windows.h>
 #include <commctrl.h>
 #include <uxtheme.h>
@@ -108,6 +109,7 @@ struct Info {
     RECT capasVis{};             // retângulo da última foto do fundo dos cantos
     DWORD capasAt = 0;           // quando foi (refaz a cada 10 s ou quando a janela muda de lugar)
     DWORD layoutAt = 0;          // última medição (0 = medir na próxima volta do timer)
+    COLORREF corGravada = CLR_INVALID;  // a cor que já está no Registro (não relê a cada volta do timer)
     // janela de ferramenta com barra (plug-ins VST do Ableton e afins): barra escura compacta, como as janelas de
     // plug-in no Mac (botões menores, título cinza no meio), sem pegar a cor do app
     bool tool = false;
@@ -130,10 +132,29 @@ struct Info {
     SIZE fotoBarraSz{}, fotoMolduraSz{};
 };
 
-bool Dark() {
+// Regra da DLL: na thread da janela do app, nada que espere disco ou Registro. A primeira leitura do processo é
+// direta (precisa do valor para montar a janela); as outras vão para o pool de threads (22/11/2026: Discord, Claude
+// e Chrome paravam segundos quando o disco engasgava).
+void NoPool(LPTHREAD_START_ROUTINE f, volatile LONG* lendo) {
+    if (InterlockedExchange(lendo, 1)) return;  // uma leitura por vez
+    if (!QueueUserWorkItem(f, nullptr, WT_EXECUTELONGFUNCTION)) InterlockedExchange(lendo, 0);
+}
+static volatile bool g_escuro;
+static volatile LONG g_lendoEscuro;
+void LerEscuro() {
     DWORD v = 1, cb = sizeof(v);
     RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &v, &cb);
-    return v == 0;
+    g_escuro = v == 0;
+}
+bool Dark(bool force = false) {  // force: o tema do Windows acabou de mudar
+    static DWORD at;
+    DWORD now = GetTickCount() | 1;
+    if (!at || force) { at = now; LerEscuro(); }
+    else if (now - at > 2000) {
+        at = now;
+        NoPool([](LPVOID) -> DWORD { LerEscuro(); InterlockedExchange(&g_lendoEscuro, 0); return 0; }, &g_lendoEscuro);
+    }
+    return g_escuro;
 }
 
 float Scale(HWND h) { return GetDpiForWindow(h) / 96.f; }
@@ -738,7 +759,16 @@ COLORREF SavedColor(HWND h = nullptr) {
     if (h && GetWindow(h, GW_OWNER)) return SavedColor(nullptr);  // diálogo novo: a do programa por enquanto
     return CLR_INVALID;
 }
-void SaveColor(HWND h, COLORREF c) { DWORD v = c; RegSetKeyValueW(HKEY_CURRENT_USER, COLORS_KEY, ColorKey(h).c_str(), REG_DWORD, &v, sizeof(v)); }
+struct CorGuardar { std::wstring nome; DWORD cor; };
+void SaveColor(HWND h, COLORREF c) {  // grava no pool: escrever no Registro também espera o disco
+    auto* g = new CorGuardar{ ColorKey(h), c };
+    if (!QueueUserWorkItem([](LPVOID p) -> DWORD {
+            auto* g = (CorGuardar*)p;
+            RegSetKeyValueW(HKEY_CURRENT_USER, COLORS_KEY, g->nome.c_str(), REG_DWORD, &g->cor, sizeof(g->cor));
+            delete g;
+            return 0;
+        }, g, WT_EXECUTELONGFUNCTION)) delete g;
+}
 
 COLORREF CapColor(Info* in) {
     if (in->cap != CLR_INVALID) return in->cap;
@@ -792,24 +822,32 @@ static bool g_propria = false;
 bool ProvaAbas();  // mais abaixo: o Chrome de teste (--wacos-teste-abas)
 bool BarraPropria() { TemaTahoe(); return g_propria || ProvaAbas(); }  // (o Chrome de teste conta como ligado: as provas continuam)
 bool TemaGolden() { return TemaTahoe() && g_golden; }
-bool TemaTahoe(bool force) {
-    static DWORD at; static bool on;
-    DWORD now = GetTickCount();
-    if (at && now - at < 3000 && !force) return on;
-    at = now ? now : 1;
+static volatile bool g_tahoe;
+static volatile LONG g_lendoTema;
+void LerTema() {  // espera o disco
     wchar_t path[MAX_PATH];
-    if (!GetEnvironmentVariableW(L"APPDATA", path, MAX_PATH)) return on;
+    if (!GetEnvironmentVariableW(L"APPDATA", path, MAX_PATH)) return;
     wcscat_s(path, L"\\Shell\\ajustes.txt");
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (f == INVALID_HANDLE_VALUE) return on;
+    if (f == INVALID_HANDLE_VALUE) return;
     char buf[8192]; DWORD n = 0;
-    ReadFile(f, buf, sizeof(buf) - 1, &n, nullptr);
+    BOOL ok = ReadFile(f, buf, sizeof(buf) - 1, &n, nullptr);
     CloseHandle(f);
+    if (!ok || !n) return;  // o Shell está gravando (arquivo vazio por um instante): fica o que valia
     buf[n] = 0;
-    on = strstr(buf, "liquid_glass=1") != nullptr;
+    g_tahoe = strstr(buf, "liquid_glass=1") != nullptr;
     g_golden = strstr(buf, "golden_gate=1") != nullptr;
     g_propria = strstr(buf, "barra_mac_propria=1") != nullptr;
-    return on;
+}
+bool TemaTahoe(bool force) {
+    static DWORD at;
+    DWORD now = GetTickCount() | 1;
+    if (!at || force) { at = now; LerTema(); }
+    else if (now - at >= 3000) {
+        at = now;
+        NoPool([](LPVOID) -> DWORD { LerTema(); InterlockedExchange(&g_lendoTema, 0); return 0; }, &g_lendoTema);
+    }
+    return g_tahoe;
 }
 int CornerRadius(HWND h) { return (int)std::lround((TemaTahoe() ? 16 : 12)  /* Golden Gate: também 16 pt (medido) */ * Scale(h)); }
 
@@ -1656,7 +1694,7 @@ void UseColor(Info* in, COLORREF col) {
     if (in->transit || (int)(GetTickCount() - in->colorFreezeUntil) < 0) return;
     bool stable = col == in->lastRead;
     in->lastRead = col;
-    if (stable) { in->needColor = false; if (SavedColor(in->owner) != col) SaveColor(in->owner, col); }
+    if (stable) { in->needColor = false; if (in->corGravada != col) { in->corGravada = col; SaveColor(in->owner, col); } }
     if (col == in->cap) return;
     in->cap = col;
     ApplyColors(in);
@@ -2238,7 +2276,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     case WM_SETTEXT: { LRESULT r = DefSubclassProc(h, m, w, l); PaintNC(in); Paint(in); return r; }
     case WM_DPICHANGED: { LRESULT r = DefSubclassProc(h, m, w, l); PlaceOverlay(in); return r; }
     case WM_SETTINGCHANGE:
-        if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { ApplyColors(in); Paint(in); }
+        if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { Dark(true); ApplyColors(in); Paint(in); }
         break;
     case WM_GETMINMAXINFO: {
         // Sem WS_MAXIMIZEBOX/WS_SYSMENU o Windows maximiza sobre o monitor inteiro (por baixo da barra de
@@ -2341,7 +2379,7 @@ void Attach(HWND h, int mode) {
         // a barra de menus vai para a barra de menus do Shell (lá em cima), como no Mac
         in->menu = GetMenu(h);
         if (in->menu) { SetPropW(h, PROP_MENU, (HANDLE)in->menu); SetMenu(h, nullptr); }
-        in->cap = in->tool ? RGB(0x2C, 0x2C, 0x2E) : SavedColor(h);  // plug-in: a barra escura das janelas de plug-in do Mac
+        in->cap = in->tool ? RGB(0x2C, 0x2C, 0x2E) : (in->corGravada = SavedColor(h));  // plug-in: a barra escura das janelas de plug-in do Mac
         if (in->tool) in->needColor = false;
         if (in->cap == CLR_INVALID) in->cap = GetSysColor(COLOR_3DFACE);  // fundo padrão das janelas (a maioria desses apps)
         ApplyColors(in);

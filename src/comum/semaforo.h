@@ -17,13 +17,8 @@ enum Kind { FILL, RING, GLYPH };
 
 // lê destaque= e o tema (golden_gate=1 junto com liquid_glass=1 = macOS Golden Gate) do ajustes.txt
 struct Estado { bool grafite = false, aqua = false, liquid = false, leopard = false; };
-inline const Estado& Ler(bool force = false) {  // force: relê já (o Shell avisou que os ajustes mudaram)
-    static Estado st;
-    static DWORD lastCheck = 0;
+inline const Estado& Reler(Estado& st) {  // espera o disco
     static FILETIME lastWrite{};
-    DWORD now = GetTickCount();
-    if (lastCheck && now - lastCheck < 500 && !force) return st;
-    lastCheck = now;
     wchar_t ad[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"APPDATA", ad, MAX_PATH);
     if (!n || n >= MAX_PATH) return st;
@@ -48,6 +43,29 @@ inline const Estado& Ler(bool force = false) {  // force: relê já (o Shell avi
     st.liquid = liquid;
     st.leopard = leo && !liquid;  // Mac OS X Leopard: só sem o Liquid Glass (o Sequoia por baixo)
     return st;
+}
+
+inline const Estado& Ler(bool force = false) {  // force: relê já (o Shell avisou que os ajustes mudaram)
+    static Estado st;
+    static DWORD lastCheck = 0;
+    DWORD now = GetTickCount();
+    if (lastCheck && now - lastCheck < 500 && !force) return st;
+    const bool primeira = !lastCheck;
+    lastCheck = now | 1;
+#ifdef SEMAFORO_SEM_ESPERA
+    // DLL das janelas (roda na thread da janela dos outros programas): com o disco ocupado o GetFileAttributes
+    // segurava o app por segundos. A conferência vai para o pool; até ela voltar vale o último valor.
+    static volatile LONG lendo = 0;
+    if (!primeira && !force) {
+        if (!InterlockedExchange(&lendo, 1) &&
+            !QueueUserWorkItem([](LPVOID) -> DWORD { Reler(st); InterlockedExchange(&lendo, 0); return 0; }, nullptr, WT_EXECUTELONGFUNCTION))
+            InterlockedExchange(&lendo, 0);
+        return st;
+    }
+#else
+    (void)primeira;
+#endif
+    return Reler(st);
 }
 
 inline bool Grafite() { return Ler().grafite; }

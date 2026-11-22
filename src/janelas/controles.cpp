@@ -7,6 +7,7 @@
 // Cada controle é subclassificado e desenhado por nós (Direct2D num DC, com antisserrilhado); o
 // comportamento continua o do Windows. Desfazer (o Shell sai): tudo volta ao original.
 #define NOMINMAX
+#define SEMAFORO_SEM_ESPERA  // antes dos includes, igual nos dois .cpp da DLL (semaforo.h)
 #include <windows.h>
 #include <windowsx.h>
 #include <commctrl.h>

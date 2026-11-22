@@ -2,6 +2,8 @@
 // os abertos (janelas que apareceriam na barra de tarefas) e os recentes. Abrir, ativar, ocultar,
 // encerrar, fixar, abrir ao iniciar sessão.
 #include "shell.h"
+#include <mutex>
+#include <unordered_map>
 #include <memory>
 #include <thread>
 #include <shlobj.h>
@@ -56,12 +58,44 @@ static std::wstring ExeOfProcess(DWORD pid) {
     return OurCanonical(out);
 }
 
+// O que já se perguntou de cada janela. O programa de uma janela não muda; perguntar de novo a cada volta do timer
+// (OpenProcess + QueryFullProcessImageName, que espera o disco) parou a interface do Shell por 4,9 s em 22/11/2026
+// (pilha: menubar::Update -> OfWindow -> ExeOfWindow). A chave é janela + processo + thread: um HWND reaproveitado não casa.
+struct DaJanela {
+    DWORD pid = 0, tid = 0;
+    ULONGLONG desde = 0;
+    std::wstring exe, aumid, aumidProc;
+    bool temAumidProc = false;
+};
+static std::mutex g_janMx;
+static std::unordered_map<HWND, DaJanela> g_jan;
+static DaJanela Guardado(HWND h) {
+    DWORD pid = 0, tid = GetWindowThreadProcessId(h, &pid);
+    std::lock_guard<std::mutex> l(g_janMx);
+    if (g_jan.size() > 1024)
+        for (auto it = g_jan.begin(); it != g_jan.end();) it = IsWindow(it->first) ? std::next(it) : g_jan.erase(it);
+    auto& d = g_jan[h];
+    if (d.pid != pid || d.tid != tid) { d = {}; d.pid = pid; d.tid = tid; d.desde = GetTickCount64(); }
+    return d;
+}
+template <class F> static void Guarda(HWND h, const DaJanela& de, F&& muda) {
+    std::lock_guard<std::mutex> l(g_janMx);
+    auto it = g_jan.find(h);
+    if (it != g_jan.end() && it->second.pid == de.pid && it->second.tid == de.tid) muda(it->second);
+}
+
 static std::wstring ExeOfWindow(HWND h) {
-    DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
-    return ExeOfProcess(pid);
+    DaJanela d = Guardado(h);
+    if (!d.exe.empty() || !d.pid) return d.exe;
+    std::wstring exe = ExeOfProcess(d.pid);
+    if (!exe.empty()) Guarda(h, d, [&](DaJanela& g) { g.exe = exe; });
+    return exe;
 }
 
 static std::wstring AumidOfWindow(HWND h) {
+    DaJanela d = Guardado(h);
+    // o da janela pode chegar ou mudar logo depois de ela abrir: só fica guardado depois de 10 s
+    if (!d.aumid.empty()) return d.aumid;
     IPropertyStore* ps = nullptr;
     std::wstring out;
     if (SUCCEEDED(SHGetPropertyStoreForWindow(h, IID_PPV_ARGS(&ps)))) {
@@ -70,13 +104,17 @@ static std::wstring AumidOfWindow(HWND h) {
         PropVariantClear(&v);
         ps->Release();
     }
-    if (out.empty()) {  // app da Loja cuja janela não traz o AUMID (WhatsApp, WinUI/WebView2): o do processo
-        DWORD pid = 0; GetWindowThreadProcessId(h, &pid);
-        if (HANDLE hp = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid)) {
-            wchar_t buf[APPLICATION_USER_MODEL_ID_MAX_LENGTH] = {}; UINT32 n = APPLICATION_USER_MODEL_ID_MAX_LENGTH;
-            if (GetApplicationUserModelId(hp, &n, buf) == ERROR_SUCCESS) out = buf;  // sem pacote: APPMODEL_ERROR_NO_APPLICATION
-            CloseHandle(hp);
-        }
+    if (!out.empty()) {
+        if (GetTickCount64() - d.desde > 10000) Guarda(h, d, [&](DaJanela& g) { g.aumid = out; });
+        return out;
+    }
+    // app da Loja cuja janela não traz o AUMID (WhatsApp, WinUI/WebView2): o do processo, que não muda
+    if (d.temAumidProc) return d.aumidProc;
+    if (HANDLE hp = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, d.pid)) {
+        wchar_t buf[APPLICATION_USER_MODEL_ID_MAX_LENGTH] = {}; UINT32 n = APPLICATION_USER_MODEL_ID_MAX_LENGTH;
+        if (GetApplicationUserModelId(hp, &n, buf) == ERROR_SUCCESS) out = buf;  // sem pacote: APPMODEL_ERROR_NO_APPLICATION
+        CloseHandle(hp);
+        Guarda(h, d, [&](DaJanela& g) { g.aumidProc = out; g.temAumidProc = true; });
     }
     return out;
 }

@@ -1197,3 +1197,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - src\menu\context_menu.*, src\shell\menubar.cpp: a lista » mostra o ícone de cada app.
   Conferido instalado: cinco buscas fotografadas; Device Manager, Adicionar ou remover programas e uma tarefa do Painel de Controle abrem; 13 ícones na lista da bandeja; ícone das tarefas.
   DESFAZER: reverter o commit.
+
+[2026-11-22 17:50, hora do PC] Travadas "do nada" (Discord, Claude, Chrome e o Shell) e animações (pedido do usuário).
+  - DLL das janelas: lia ajustes.txt (TemaTahoe, semaforo.h) e o Registro (tema, cor guardada) na thread da janela de cada app, a cada 0,5-3 s. Com o disco ocupado o app esperava junto. Agora essas leituras e a gravação da cor vão para o pool de threads (src\janelas\macjanela.cpp, controles.cpp, src\comum\semaforo.h). Provado com oplock num ajustes.txt falso de um Electron de teste: quem abriu o arquivo esperou 8,0 s; a janela parou no máximo 23-24 ms.
+  - Shell: pilha de uma parada de 4,9 s em menubar::Update -> ExeOfWindow (OpenProcess + nome do exe). src\shell\apps.cpp guarda exe e AUMID por janela + processo + thread.
+  - Animações: src\shell\ui.cpp, um quadro por vez na fila (o mouse e o teclado não ficam atrás dos quadros a 174 Hz); Quick Look, Time Machine e a prévia do encaixe saíram do timer de 15,6 ms para o relógio da tela.
+  Conferido instalado: 200 s de caça nos apps reais com 0 paradas (disco calmo nesse período); Spotlight, abrir tarefa, lista da bandeja. NÃO conferido na tela: Quick Look, Time Machine, prévia do encaixe; taxa de quadros não medida.
+  DESFAZER: reverter o commit.

@@ -558,6 +558,20 @@ void ui::FrameAck(HWND hwnd, UINT msg) {
     for (auto* c : g_clocks) if (c->hwnd == hwnd && c->msg == msg) { c->acks = true; c->pending = false; return; }
 }
 
+// Um quadro por vez na fila, para todas as animações: o quadro saiu da fila = o relógio pode mandar o próximo. Sem
+// isso, a 174 Hz, um desenho de mais de 5,7 ms enchia a fila de quadros, e mensagem postada passa na frente do mouse e
+// do teclado: a animação e o resto da interface engasgavam juntos. É gancho da thread (vale também dentro dos laços de
+// menu e de arrastar).
+static LRESULT CALLBACK QuadroSaiu(int code, WPARAM w, LPARAM l) {
+    if (code >= 0 && w == PM_REMOVE && l) {
+        auto* m = (const MSG*)l;
+        if (m->message >= WM_USER)
+            for (auto* c : g_clocks)
+                if (c->hwnd == m->hwnd && c->msg == m->message) { c->pending = false; break; }
+    }
+    return CallNextHookEx(nullptr, code, w, l);
+}
+
 void ui::FrameClock(HWND hwnd, UINT msg, bool on) {
     for (auto* c : g_clocks)
         if (c->hwnd == hwnd && c->msg == msg) {
@@ -567,6 +581,14 @@ void ui::FrameClock(HWND hwnd, UINT msg, bool on) {
         }
     if (!on) return;
     auto* c = new Clock{ hwnd, msg, true, CreateEventW(nullptr, FALSE, FALSE, nullptr) };
+    {
+        static thread_local HHOOK gancho;
+        DWORD me = GetCurrentThreadId();
+        if (GetWindowThreadProcessId(hwnd, nullptr) == me) {
+            if (!gancho) gancho = SetWindowsHookExW(WH_GETMESSAGE, QuadroSaiu, nullptr, me);
+            c->acks = gancho != nullptr;
+        }
+    }
     g_clocks.push_back(c);
     std::thread([c] {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
