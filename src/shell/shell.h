@@ -409,6 +409,9 @@ void NoExplorerOnExit();                // reiniciando o Shell: ao sair, o Explo
 void SettingsChanged();                 // ajustes.txt mudou (explorer=0/1)
 // cor média do papel de parede que a mesa está mostrando, na faixa atrás da barra de menus (0..1); false sem mesa
 bool TopColor(int barPx, float& r, float& g, float& b, bool baixo = false);
+// a imagem do papel de parede do monitor principal como a mesa desenhou (BGRA, opaca) e onde fica na tela. key muda
+// quando o papel de parede é refeito: com key igual ao que se passou, não copia nada e devolve true
+bool Papel(void*& key, int& w, int& h, RECT& tela, std::vector<BYTE>& px);
 bool Standalone();                      // sem Explorador agora (qualquer thread)
 void WallpaperNow(const std::wstring& path);  // o Ajustes escolheu este papel de parede: mostra já
 void DepoisDoJogo();                    // modo jogo acabou: refaz a mesa se a tela mudou durante o jogo

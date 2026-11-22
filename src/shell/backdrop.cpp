@@ -432,6 +432,7 @@ std::atomic<bool> capDirty{ false };  // chegou quadro novo ou janela mexeu: mon
 // janela mexeu/mudou de ordem, peça nova: monta e redesenha todas as áreas. Só quadro novo de uma janela:
 // só as áreas (e as peças) que ficam na frente dela
 std::atomic<bool> allDirty{ true };
+bool g_fingeMesaPreta = false;  // teste: mensagem ShellVidroMesaPreta (w = 1 liga, 0 desliga; só na memória)
 std::atomic<bool> frameDirty{ false };  // só chegou quadro novo (conteúdo): monta no máximo a cada 15 ms (30 por segundo ficava lento de ver)
 double lastFrameCompose = 0;
 std::vector<RECT> lastDirty;  // áreas montadas na última vez (as peças nelas são redesenhadas)
@@ -482,6 +483,8 @@ LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     static UINT capVis = RegisterWindowMessageW(L"ShellCapturaVisivel");
     static UINT dumpMsg = RegisterWindowMessageW(L"ShellVidroFoto");
     if (m == dumpMsg && dumpMsg) { Dump(); return 1; }  // diagnóstico: grava o fundo montado e cada janela em bin\vidro-*.bmp
+    static UINT fingePreta = RegisterWindowMessageW(L"ShellVidroMesaPreta");  // teste do issue #31: a mesa capturada preta
+    if (m == fingePreta && fingePreta) { g_fingeMesaPreta = w != 0; allDirty = true; capDirty = true; return 1; }
     if (m == WM_RG_FRAME) {  // quadro novo, ou janela apareceu/sumiu/mudou de ordem: monta o fundo já
         posted = false;
         // janela mexendo: até 60 por segundo; só conteúdo mudando (vídeo, texto rolando atrás do Dock): também até 60 (30 deixava o vidro atrasado)
@@ -548,6 +551,8 @@ struct WinCap {
     RECT rect{};                                   // onde estava na última montagem
     std::atomic<bool> relevant{ true };            // está atrás de alguma peça de vidro (senão quadro novo não monta nada)
     std::atomic<bool> fresh{ true };               // chegou quadro desde a última montagem
+    bool mesa = false;                             // é a mesa (nossa ou a do Windows): o papel de parede
+    int preto = -1;                                // mesa: o quadro veio todo preto? (-1 = ainda não conferido)
     // Fecha numa thread à parte: o GraphicsCaptureSession::Close espera uma trava interna da captura do Windows, e com o
     // compositor encrencado ela demora segundos ou não volta (22/11/2026, pilha do travamento: rg::RefreshWindows ->
     // WinCap::Close -> GraphicsCapture!...EnterCriticalSection). Na thread da interface, o vigia via o Shell parado por
@@ -579,6 +584,10 @@ RECT Bounds(HWND h) {
 std::shared_ptr<WinCap> StartCap(HWND h) {
     auto c = std::make_shared<WinCap>();
     c->h = h;
+    {
+        wchar_t cl[48] = {}; GetClassNameW(h, cl, 48);
+        c->mesa = !wcscmp(cl, L"SequoiaMesa") || !wcscmp(cl, L"Progman") || !wcscmp(cl, L"WorkerW");
+    }
     try {
         auto interop = winrt::get_activation_factory<wgc::GraphicsCaptureItem, IGraphicsCaptureItemInterop>();
         winrt::check_hresult(interop->CreateForWindow(h, winrt::guid_of<wgc::GraphicsCaptureItem>(), winrt::put_abi(c->item)));
@@ -651,6 +660,7 @@ std::mutex readyMx;
 std::vector<std::pair<HWND, std::shared_ptr<WinCap>>> ready;  // abertas pela thread (nullptr = recusada)
 std::vector<HWND> pending;
 
+winrt::com_ptr<ID2D1Bitmap1> g_papel;  // o papel de parede da mesa, por baixo do fundo (issue #31; Compose)
 bool capJaFuncionou = false;  // alguma montagem já teve janela com quadro (a captura funciona neste PC)
 
 void RefreshWindows() {
@@ -668,7 +678,7 @@ void RefreshWindows() {
             if (!capFailed.count(h)) { wchar_t cl[64] = {}; GetClassNameW(h, cl, 64); Log(L"vidro real: captura recusada para %ls", cl); }
             {   // a mesa (o papel de parede) é o fundo de quase tudo: sem ela o vidro fica preto onde não há janela atrás
                 wchar_t cl[64] = {}; GetClassNameW(h, cl, 64);
-                if (!capJaFuncionou && (!wcscmp(cl, L"SequoiaMesa") || !wcscmp(cl, L"Progman") || !wcscmp(cl, L"WorkerW"))) semCaptura = true;
+                if (!capJaFuncionou && !g_papel && (!wcscmp(cl, L"SequoiaMesa") || !wcscmp(cl, L"Progman") || !wcscmp(cl, L"WorkerW"))) semCaptura = true;
             }
             capFailed[h] = GetTickCount();
         }
@@ -805,7 +815,52 @@ bool Composed(HWND h) {
     return IsRectEmpty(&r) || Inside(r, composed);
 }
 
-// Monta o fundo em tex: preto, a mesa e as janelas na ordem (só na área das peças).
+// Issue #31 (Intel Iris Xe, Windows Insider 26400): as janelas apareciam no vidro e o papel de parede vinha PRETO. A
+// camada da mesa pode faltar (captura recusada, nenhum quadro) ou chegar preta. Então o fundo começa pela imagem do
+// papel de parede que a mesa já tem (em vez de preto), e o quadro da mesa que chega todo preto não é desenhado.
+RECT g_papelTela{};
+void* g_papelKey = nullptr;
+void PapelAtual() {
+    int w = 0, h = 0;
+    std::vector<BYTE> px;
+    void* key = g_papelKey;
+    RECT tela{};
+    if (!mesa::Papel(key, w, h, tela, px)) { g_papel = nullptr; g_papelKey = nullptr; return; }
+    g_papelTela = tela;
+    if (key == g_papelKey && g_papel) return;
+    g_papel = nullptr;
+    auto bp = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (SUCCEEDED(util->CreateBitmap(D2D1::SizeU(w, h), px.data(), w * 4, &bp, g_papel.put()))) {
+        g_papelKey = key;
+        allDirty = true;  // monta de novo com ele (nesta mesma montagem)
+        Log(L"vidro real: papel de parede da mesa por baixo do fundo (%dx%d)", w, h);
+    } else g_papelKey = nullptr;
+}
+// 9 pontos do quadro da mesa (cópia mínima para a CPU): todos quase pretos = a captura veio preta
+bool QuadroPreto(ID3D11Texture2D* t, UINT w, UINT h) {
+    if (!t || w < 8 || h < 8) return false;
+    D3D11_TEXTURE2D_DESC d{}; t->GetDesc(&d);
+    D3D11_TEXTURE2D_DESC s{}; s.Width = 9; s.Height = 1; s.MipLevels = 1; s.ArraySize = 1; s.Format = d.Format;
+    s.SampleDesc.Count = 1; s.Usage = D3D11_USAGE_STAGING; s.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    winrt::com_ptr<ID3D11Texture2D> st;
+    if (FAILED(d3d->CreateTexture2D(&s, nullptr, st.put()))) return false;
+    for (UINT i = 0; i < 9; i++) {
+        UINT x = w * (1 + i % 3 * 2) / 6, y = h * (1 + i / 3 * 2) / 6;
+        D3D11_BOX b{ x, y, 0, x + 1, y + 1, 1 };
+        ctx->CopySubresourceRegion(st.get(), 0, i, 0, 0, t, 0, &b);
+    }
+    D3D11_MAPPED_SUBRESOURCE m{};
+    if (FAILED(ctx->Map(st.get(), 0, D3D11_MAP_READ, 0, &m))) return false;
+    bool preto = true;
+    for (UINT i = 0; i < 9 && preto; i++) {
+        const BYTE* p = (const BYTE*)m.pData + i * 4;
+        preto = p[0] < 6 && p[1] < 6 && p[2] < 6;
+    }
+    ctx->Unmap(st.get(), 0);
+    return preto;
+}
+
+// Monta o fundo em tex: o papel de parede, a mesa e as janelas na ordem (só na área das peças).
 void Compose() {
     if (!target) return;
     std::vector<RECT> areas = GlassAreas();
@@ -836,6 +891,7 @@ void Compose() {
     util->BeginDraw();
     util->SetTransform(D2D1::Matrix3x2F::Identity());
     std::vector<winrt::com_ptr<ID2D1Bitmap1>> keep;
+    PapelAtual();
     bool all = allDirty.exchange(false);
     lastDirty.clear();
     for (auto& area : areas) {
@@ -852,6 +908,11 @@ void Compose() {
     lastDirty.push_back(area);
     util->PushAxisAlignedClip(D2D1::RectF((float)area.left, (float)area.top, (float)area.right, (float)area.bottom), D2D1_ANTIALIAS_MODE_ALIASED);
     util->Clear(D2D1::ColorF(0, 0, 0, 1));
+    if (g_papel) {
+        auto sz = g_papel->GetPixelSize();
+        float x = (float)(g_papelTela.left - mon.left), y = (float)(g_papelTela.top - mon.top);
+        util->DrawBitmap(g_papel.get(), D2D1::RectF(x, y, x + sz.width, y + sz.height), 1, D2D1_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
+    }
     for (auto& c : caps) {
         if (!c->frame) continue;
         {  // janela fora da área das peças: não precisa desenhar
@@ -863,10 +924,21 @@ void Compose() {
             auto access = c->frame.Surface().as<::Windows::Graphics::DirectX::Direct3D11::IDirect3DDxgiInterfaceAccess>();
             winrt::com_ptr<IDXGISurface> sf;
             winrt::check_hresult(access->GetInterface(IID_PPV_ARGS(sf.put())));
+            auto cs = c->frame.ContentSize();
+            if (c->mesa && g_papel) {  // a mesa: confere o quadro novo uma vez; todo preto, fica o papel de parede
+                if (c->fresh || c->preto < 0) {
+                    int antes = c->preto;
+                    c->preto = sf.try_as<ID3D11Texture2D>() ? (QuadroPreto(sf.as<ID3D11Texture2D>().get(), cs.Width, cs.Height) ? 1 : 0) : 0;
+                    if (c->preto != antes && c->preto == 1) {
+                        wchar_t cl[48] = {}; GetClassNameW(c->h, cl, 48);
+                        Log(L"vidro real: a captura de %ls veio preta; vale o papel de parede", cl);
+                    }
+                }
+                if (c->preto == 1 || g_fingeMesaPreta) { c->rect = Bounds(c->h); continue; }
+            }
             winrt::com_ptr<ID2D1Bitmap1> bmp;
             auto bp = D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_NONE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
             winrt::check_hresult(util->CreateBitmapFromDxgiSurface(sf.get(), &bp, bmp.put()));
-            auto cs = c->frame.ContentSize();
             RECT wr; GetWindowRect(c->h, &wr);
             RECT at = wr;  // o quadro é a janela inteira, ou só a parte visível (sem a borda invisível)
             if (cs.Width != wr.right - wr.left || cs.Height != wr.bottom - wr.top) at = Bounds(c->h);

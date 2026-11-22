@@ -1208,3 +1208,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
 [2026-11-22 18:02, hora do PC] Janelas comuns: cor dos cantos lida da tela no máximo 4 vezes por segundo.
   - src/janelas/macjanela.cpp (UpdateCorners): dois GetPixel da tela por passo, na thread do app, engasgavam mover e redimensionar. Medido numa janela descartável: ver o commit.
   DESFAZER: reverter o commit.
+
+[2026-11-22 19:10, hora do PC] Issue #31: papel de parede preto no vidro real (Intel Iris Xe, Windows Insider 26400).
+  - src/shell/backdrop.cpp: o fundo do vidro começa pela imagem do papel de parede (antes: preto). A camada da mesa capturada que chega toda preta (9 pontos conferidos por quadro novo) não é desenhada. Mesa recusada com o papel de parede à mão não desliga mais o vidro real.
+  - src/shell/mesa.cpp: mesa::Papel, a imagem da nossa mesa ou, com o Explorador de fundo (o padrão, sem a nossa mesa), o papel de parede do Windows montado numa thread.
+  - Teste: mensagem ShellVidroMesaPreta (w=1 finge a mesa preta, só na memória). No Dock: normal RGB 47,48,69; mesa fingida preta 45,45,64; nenhum pixel escuro. NÃO reproduzido no PC do usuário da issue.
+  DESFAZER: reverter o commit.

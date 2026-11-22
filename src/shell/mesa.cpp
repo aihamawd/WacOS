@@ -1847,6 +1847,79 @@ bool mesa::Standalone() { return g_standalone.load(); }
 
 // a faixa do papel de parede atrás da barra de menus, como a mesa a desenhou (o mesmo corte e estilo da tela):
 // a barra do Tahoe é transparente e a cor do texto segue o que está atrás dela
+// Sem a nossa mesa (Explorador de fundo, o padrão): a imagem sai do papel de parede do Windows, montada numa thread
+// (decodificar o JPG grande levava ~0,1 s) e refeita quando o arquivo, o estilo ou a tela mudam (conferido a cada 3 s).
+namespace {
+std::mutex g_papelMx;
+std::vector<BYTE> g_papelPx;
+int g_papelW, g_papelH, g_papelVer;
+std::wstring g_papelSinal;
+bool g_papelMontando;
+}
+static bool PapelDoWindows(void*& key, int& w, int& h, RECT& tela, std::vector<BYTE>& px) {
+    MONITORINFO mi{ sizeof(mi) };
+    if (!GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi)) return false;
+    tela = mi.rcMonitor;
+    const int W = tela.right - tela.left, H = tela.bottom - tela.top;
+    static DWORD conferido;
+    if (!conferido || GetTickCount() - conferido > 3000) {
+        conferido = GetTickCount() | 1;
+        std::lock_guard<std::mutex> l(g_papelMx);
+        if (!g_papelMontando) {
+            g_papelMontando = true;
+            std::thread([W, H] {
+                HRESULT ci = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+                Wall wl = ReadWall();  // Registro e disco: fora da interface
+                WIN32_FILE_ATTRIBUTE_DATA fa{};
+                GetFileAttributesExW(wl.path.c_str(), GetFileExInfoStandard, &fa);
+                wchar_t s[64]; swprintf_s(s, L"|%d|%d|%lu|%lu|%dx%d", wl.style, (int)wl.tile, fa.ftLastWriteTime.dwLowDateTime, wl.bg, W, H);
+                std::wstring sinal = wl.path + s;
+                bool igual;
+                { std::lock_guard<std::mutex> l(g_papelMx); igual = sinal == g_papelSinal; }
+                std::vector<BYTE> v;
+                if (!igual) {
+                    if (HBITMAP hb = BuildWall(W, H, wl, nullptr)) {
+                        DIBSECTION ds{};
+                        if (GetObjectW(hb, sizeof(ds), &ds) && ds.dsBm.bmBits) {
+                            const BYTE* b = (const BYTE*)ds.dsBm.bmBits;
+                            v.assign(b, b + (size_t)W * H * 4);
+                            for (size_t i = 3; i < v.size(); i += 4) v[i] = 255;
+                        }
+                        DeleteObject(hb);
+                    }
+                }
+                {
+                    std::lock_guard<std::mutex> l(g_papelMx);
+                    if (!v.empty()) { g_papelPx = std::move(v); g_papelW = W; g_papelH = H; g_papelVer++; g_papelSinal = sinal; }
+                    g_papelMontando = false;
+                }
+                if (SUCCEEDED(ci)) CoUninitialize();
+            }).detach();
+        }
+    }
+    std::lock_guard<std::mutex> l(g_papelMx);
+    if (g_papelPx.empty()) return false;
+    void* k = (void*)(INT_PTR)(0x1000000 + g_papelVer);  // não colide com um HBITMAP da mesa
+    if (key == k) return true;
+    px = g_papelPx; w = g_papelW; h = g_papelH; key = k;
+    return true;
+}
+
+bool mesa::Papel(void*& key, int& w, int& h, RECT& tela, std::vector<BYTE>& px) {
+    Mon* p = Primary();
+    if (!p || !p->wall || !p->wallDC) return PapelDoWindows(key, w, h, tela, px);
+    tela = p->r;
+    if (key == (void*)p->wall) return true;
+    BITMAP bm{};
+    if (!GetObjectW(p->wall, sizeof(bm), &bm) || bm.bmWidth <= 0 || bm.bmHeight <= 0) return false;
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), bm.bmWidth, -bm.bmHeight, 1, 32, BI_RGB };
+    px.resize((size_t)bm.bmWidth * bm.bmHeight * 4);
+    if (GetDIBits(p->wallDC, p->wall, 0, bm.bmHeight, px.data(), &bi, DIB_RGB_COLORS) <= 0) return false;
+    for (size_t i = 3; i < px.size(); i += 4) px[i] = 255;  // o papel de parede é sempre opaco
+    w = bm.bmWidth; h = bm.bmHeight; key = (void*)p->wall;
+    return true;
+}
+
 bool mesa::TopColor(int barPx, float& r, float& g, float& b, bool baixo) {
     Mon* p = Primary();
     if (!p || !p->wall || !p->wallDC) return false;
