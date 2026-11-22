@@ -189,7 +189,12 @@ void limites::Maximizada(HWND h) {
     if (fb.top >= wa.top - 1 && fb.bottom <= wa.bottom + 1) return;  // dentro da área: nada a fazer
     if (feitas.size() > 64) feitas.clear();
     if (antes.size() > 64) antes.clear();
+    // a correção vai sem esperar o app (SWP_ASYNCWINDOWPOS): esperando, um app ocupado prendia o Shell inteiro. Enquanto
+    // ela não chega, os avisos que já estavam na fila mostram o lugar de antes: isso não é o app insistindo.
+    static std::map<HWND, DWORD> quando;
+    if (quando.size() > 64) quando.clear();
     auto& a = antes[h];
+    if (a.second > 0 && EqualRect(&a.first, &wr) && GetTickCount() - quando[h] < 300) return;
     if (a.second >= 3 || (a.second > 0 && EqualRect(&a.first, &wr))) {
         feitas.insert(h);
         wchar_t c[64] = {}; GetClassNameW(h, c, 64);
@@ -197,9 +202,10 @@ void limites::Maximizada(HWND h) {
         return;
     }
     a.first = wr; a.second++;
+    quando[h] = GetTickCount();
     int dl = fb.left - wr.left, dt = fb.top - wr.top, dr = wr.right - fb.right, db = wr.bottom - fb.bottom;
     SetWindowPos(h, nullptr, wa.left - dl, wa.top - dt, (wa.right - wa.left) + dl + dr, (wa.bottom - wa.top) + dt + db,
-                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+                 SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS);
     wchar_t c[64] = {}; GetClassNameW(h, c, 64);
     Log(L"limites: maximizada '%ls' por cima da barra/do Dock: volta para a área de trabalho", c);
 }

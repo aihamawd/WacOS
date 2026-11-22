@@ -10,6 +10,7 @@
 #include <dcomp.h>
 #include <dwmapi.h>
 #include <atomic>
+#include <mutex>
 #include <thread>
 #include <algorithm>
 #include <cmath>
@@ -37,14 +38,37 @@ bool ui::Init() {
     return true;
 }
 
+// Dark() roda a cada peça de vidro de cada quadro (~300 vezes por segundo). Lendo o Registro toda vez, a interface
+// parava quando ele demorava (RegOpenKeyEx: 1,1 s, pilha de 22/11/2026, 15:14). O Windows avisa quando a chave muda
+// (o aviso já está lá quando o RegSetValue volta): só então lê de novo.
+static bool TemaDoWindowsEscuro() {
+    static std::mutex mx;
+    static HKEY k;
+    static HANDLE mudou;
+    static std::atomic<bool> escuro{ false }, pronto{ false };
+    if (pronto && (!mudou || WaitForSingleObject(mudou, 0) != WAIT_OBJECT_0)) return escuro;
+    std::lock_guard<std::mutex> l(mx);
+    if (!k) {
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                          0, KEY_QUERY_VALUE | KEY_NOTIFY, &k) == ERROR_SUCCESS)
+            mudou = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+        else k = nullptr;
+    }
+    if (k) {
+        if (mudou) RegNotifyChangeKeyValue(k, FALSE, REG_NOTIFY_CHANGE_LAST_SET | REG_NOTIFY_THREAD_AGNOSTIC, mudou, TRUE);
+        DWORD v = 1, cb = sizeof(v);
+        RegGetValueW(k, nullptr, L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &v, &cb);
+        escuro = v == 0;
+    }
+    pronto = true;
+    return escuro;
+}
+
 bool ui::Dark() {  // ajuste "tema": auto (segue o Windows), claro ou escuro
     std::wstring t = shell::Setting(L"tema", L"auto");
     if (t == L"claro") return false;
     if (t == L"escuro") return true;
-    DWORD v = 1, cb = sizeof(v);
-    RegGetValueW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                 L"AppsUseLightTheme", RRF_RT_REG_DWORD, nullptr, &v, &cb);
-    return v == 0;
+    return TemaDoWindowsEscuro();
 }
 
 float ui::Scale(HWND h) { return GetDpiForWindow(h) / 96.f; }

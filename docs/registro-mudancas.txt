@@ -1166,3 +1166,20 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
    - desfeitos bf271c0 e a8704a8 (remendos do Wobbly Windows): não resolviam e mexiam na barra de todos os apps.
   Conferido: compilado, instalado (hashes iguais), 600 medidas em 5 min: maior resposta 5 ms, nenhum reinício. NÃO conferido: sob disco saturado, arrastando de verdade, menu do Dock clicado, e por que o vidro sumiu da tela do usuário com o GIMP aberto.
   DESFAZER: reverter o commit.
+
+[2026-11-22 16:10, hora do PC] Travamentos, causas com pilha e medida.
+  Shell (instalado às 15:36): as paradas tinham arquivo e linha, nenhuma no conserto do GIMP:
+   - menubar.cpp RefreshStatus: WlanOpenHandle na interface (3,6 s). O estado da barra (Wi-Fi, rede, Bluetooth, som) é lido numa thread (PedeStatus/PegaStatus, WM_BARSTATUS).
+   - ui.cpp ui::Dark: lia o Registro a cada peça de vidro de cada quadro (1,1 s). Lê só quando a chave muda (RegNotifyChangeKeyValue).
+   - main.cpp EnsureReserve: CreateProcess do Finder reserva na interface (2,9 s). Vai numa thread; a Captura residente também.
+   Mesma classe de espera, achadas lendo o código (sem pilha): central.cpp ReadFast numa thread; limites::Maximizada com SWP_ASYNCWINDOWPOS.
+   Conferido: 9 min com o disco com fila >= 5 em 65 % das medidas: 0 paradas acima de 400 ms, maior resposta 62 ms (antes: 3,6 s e 4,4 s).
+   NÃO conferido na tela: ícones da barra ao trocar Wi-Fi/fone, tema claro/escuro ao vivo, Central de Controle, issue #24 com o movimento assíncrono.
+  Apps travando: nas pilhas tiradas não era a WacOSWindow.dll.
+   - Claude parado 11,7 s em FlushFileBuffers (grava a própria lista de atalhos na thread da interface), sem frame nosso; NVIDIA Overlay, sem a DLL, parado 4 s; leitura de controle de 4 KB acima de 0,5 s 7 vezes.
+   - C: (XPG SPECTRIX S40G) saturado com 34-105 MB/s de gravação; folgado grava 521 MB/s e já marca 75 C. Estrangulamento por calor ou cache é provável, não provado.
+   - Na janela ruim (14:45-15:51) a maior parte dos 4 GB que sobraram gravados era deste projeto: builds em 3 cópias, 4 worktrees (227 MB de docs cada), zips de ensaio, pack do git.
+   - Pista falsa descartada: NVDisplay.Container conta ~17 MB de "escrita" a cada processo que abre a GPU, mas o disco não sobe (é pipe).
+   - Para trabalhar sem travar o PC: uma build por vez, sem worktree novo à toa, ensaio de pacote só quando for publicar.
+  Atenção ao publicar: desde o push de 15:37 (e06bee0) o main público tem os commits da barra própria ligada por padrão. A build-28 precisa tirá-los, se ela continuar de fora.
+  DESFAZER: reverter o commit.

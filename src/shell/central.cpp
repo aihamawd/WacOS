@@ -574,7 +574,8 @@ void BrightWorker() {
     g_brightBusy = false;
 }
 
-void ReadFast() {  // leituras rápidas: ao abrir e a cada atualização
+std::atomic<int> g_fastPedidos{ 0 };
+void ReadFastAgora() {  // só na thread do ReadFast: WLAN e áudio esperam serviços do Windows (já levou 3,6 s)
     std::wstring ssid = Ssid();
     float vol = 0; BOOL mute = FALSE;
     if (IAudioEndpointVolume* v = Endpoint()) { v->GetMasterVolumeLevelScalar(&vol); v->GetMute(&mute); v->Release(); }
@@ -582,6 +583,19 @@ void ReadFast() {  // leituras rápidas: ao abrir e a cada atualização
     int air = (int)RegDw(CDP, L"NearShareChannelUserAuthzPolicy", 0);
     std::lock_guard<std::mutex> l(g_mx);
     g_st.ssid = ssid; g_st.volume = vol; g_st.mute = mute != FALSE; g_st.focus = focus; g_st.airdrop = air;
+}
+void ReadFast() {  // leituras rápidas: ao abrir e a cada atualização; fora da interface, uma de cada vez
+    if (g_fastPedidos.fetch_add(1) > 0) return;  // já há uma lendo: ela lê de novo no fim
+    std::thread([] {
+        HRESULT ci = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        for (;;) {
+            int n = g_fastPedidos.load();
+            ReadFastAgora();
+            if (g_wnd) PostMessageW(g_wnd, WM_CC_UPDATE, 0, 0);
+            if (g_fastPedidos.fetch_sub(n) == n) break;
+        }
+        if (SUCCEEDED(ci)) CoUninitialize();
+    }).detach();
 }
 
 // Wi-Fi/Bluetooth ligados ou não (Windows.Devices.Radios), numa thread própria

@@ -22,6 +22,9 @@ static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == 
 #include <algorithm>
 #include <cmath>
 #include <map>
+#include <atomic>
+#include <mutex>
+#include <thread>
 #include "../comum/idioma.h"
 
 namespace {
@@ -290,87 +293,129 @@ struct Status {
     bool sound = false, muted = false, phones = false; float vol = 0;
     HKL hkl = nullptr;
     DWORD btAt = 0;
+    std::wstring ssid;
 } g_st;
 
 bool WifiName(std::wstring& ssid);
-bool g_audioStale;  // a saída padrão mudou: relê o objeto de áudio já
+std::atomic<bool> g_audioStale{ false };  // a saída padrão mudou: relê o objeto de áudio já
 
-void RefreshStatus() {
+void LerStatus(Status& st) {
     static DWORD wifiAt, audioAt;
     static IAudioEndpointVolume* vol;  // o mesmo objeto de áudio entre as leituras (antes: criado e solto a cada segundo)
     DWORD now = GetTickCount();
     // Wi-Fi: existe placa? está conectada? (a cada 5 s)
     if (!wifiAt || now - wifiAt > 5000) {
         wifiAt = now;
-        g_st.wlan = false;
+        st.wlan = false;
         HANDLE h = nullptr; DWORD ver = 0;
         if (WlanOpenHandle(2, nullptr, &ver, &h) == ERROR_SUCCESS) {
             PWLAN_INTERFACE_INFO_LIST list = nullptr;
-            if (WlanEnumInterfaces(h, nullptr, &list) == ERROR_SUCCESS) { g_st.wlan = list->dwNumberOfItems > 0; WlanFreeMemory(list); }
+            if (WlanEnumInterfaces(h, nullptr, &list) == ERROR_SUCCESS) { st.wlan = list->dwNumberOfItems > 0; WlanFreeMemory(list); }
             WlanCloseHandle(h, nullptr);
         }
-        std::wstring ssid;
-        g_st.wifiOn = g_st.wlan && WifiName(ssid);
+        st.ssid.clear();
+        st.wifiOn = st.wlan && WifiName(st.ssid);
         // cabo ligado (placa Ethernet com rede)? Aí o Wi-Fi desconectado não aparece na barra
-        g_st.wired = false;
+        st.wired = false;
         ULONG sz = 16 * 1024;
         std::vector<BYTE> buf(sz);
         DWORD rc = GetAdaptersInfo((IP_ADAPTER_INFO*)buf.data(), &sz);
         if (rc == ERROR_BUFFER_OVERFLOW) { buf.resize(sz); rc = GetAdaptersInfo((IP_ADAPTER_INFO*)buf.data(), &sz); }
         if (rc == NO_ERROR)  // placa Ethernet com gateway = cabo conectado à rede
             for (auto* a = (IP_ADAPTER_INFO*)buf.data(); a; a = a->Next)
-                if (a->Type == MIB_IF_TYPE_ETHERNET && strcmp(a->GatewayList.IpAddress.String, "0.0.0.0") && a->GatewayList.IpAddress.String[0]) { g_st.wired = true; break; }
+                if (a->Type == MIB_IF_TYPE_ETHERNET && strcmp(a->GatewayList.IpAddress.String, "0.0.0.0") && a->GatewayList.IpAddress.String[0]) { st.wired = true; break; }
     }
     // bateria (só em quem tem)
     SYSTEM_POWER_STATUS ps{};
     if (GetSystemPowerStatus(&ps) && !(ps.BatteryFlag & 128) && ps.BatteryFlag != 255 && ps.BatteryLifePercent <= 100) {
-        g_st.batt = true; g_st.pct = ps.BatteryLifePercent; g_st.charging = ps.ACLineStatus == 1;
-    } else g_st.batt = false;
+        st.batt = true; st.pct = ps.BatteryLifePercent; st.charging = ps.ACLineStatus == 1;
+    } else st.batt = false;
     // Bluetooth: tem rádio?
-    if (!g_st.btAt || GetTickCount() - g_st.btAt > 10000) {
-        g_st.btAt = GetTickCount();
+    if (!st.btAt || GetTickCount() - st.btAt > 10000) {
+        st.btAt = GetTickCount();
         BLUETOOTH_FIND_RADIO_PARAMS fp{ sizeof(fp) }; HANDLE radio = nullptr;
         HBLUETOOTH_RADIO_FIND f = BluetoothFindFirstRadio(&fp, &radio);
-        g_st.bt = f != nullptr;
+        st.bt = f != nullptr;
         if (radio) CloseHandle(radio);
         if (f) BluetoothFindRadioClose(f);
     }
     // som: volume e mudo a cada segundo (barato, no objeto guardado); a saída padrão e se é um fone a cada 10 s
     bool fresh = false;
-    if (g_audioStale) { g_audioStale = false; audioAt = 0; }
+    if (g_audioStale.exchange(false)) audioAt = 0;
     if (vol && audioAt && now - audioAt < 10000) {
         BOOL mute = FALSE;
-        if (SUCCEEDED(vol->GetMute(&mute)) && SUCCEEDED(vol->GetMasterVolumeLevelScalar(&g_st.vol))) { g_st.muted = mute; fresh = true; }
+        if (SUCCEEDED(vol->GetMute(&mute)) && SUCCEEDED(vol->GetMasterVolumeLevelScalar(&st.vol))) { st.muted = mute; fresh = true; }
     }
     if (!fresh) {
     audioAt = now;
     if (vol) { vol->Release(); vol = nullptr; }
-    g_st.sound = false;
+    st.sound = false;
     IMMDeviceEnumerator* en = nullptr;
     if (SUCCEEDED(CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL, IID_PPV_ARGS(&en)))) {
         IMMDevice* dev = nullptr;
         if (SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eConsole, &dev))) {
             if (SUCCEEDED(dev->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr, (void**)&vol))) {
-                BOOL mute = FALSE; vol->GetMute(&mute); vol->GetMasterVolumeLevelScalar(&g_st.vol);
-                g_st.muted = mute; g_st.sound = true;
+                BOOL mute = FALSE; vol->GetMute(&mute); vol->GetMasterVolumeLevelScalar(&st.vol);
+                st.muted = mute; st.sound = true;
             }
-            IPropertyStore* st = nullptr;
-            g_st.phones = false;
-            if (SUCCEEDED(dev->OpenPropertyStore(STGM_READ, &st))) {
+            IPropertyStore* ps2 = nullptr;
+            st.phones = false;
+            if (SUCCEEDED(dev->OpenPropertyStore(STGM_READ, &ps2))) {
                 static const PROPERTYKEY formFactor = { { 0x1da5d803, 0xd492, 0x4edd, { 0x8c, 0x23, 0xe0, 0xc0, 0xff, 0xee, 0x7f, 0x0e } }, 0 };
                 PROPVARIANT v; PropVariantInit(&v);
-                if (SUCCEEDED(st->GetValue(formFactor, &v)) && v.vt == VT_UI4) g_st.phones = v.ulVal == 3 || v.ulVal == 5;  // fone / headset
+                if (SUCCEEDED(ps2->GetValue(formFactor, &v)) && v.vt == VT_UI4) st.phones = v.ulVal == 3 || v.ulVal == 5;  // fone / headset
                 PropVariantClear(&v);
-                st->Release();
+                ps2->Release();
             }
             dev->Release();
         }
         en->Release();
     }
     }
+}
+
+// Tudo acima pergunta a um serviço do Windows (WLAN, rede, Bluetooth, áudio) e espera a resposta. Na thread da
+// interface, com o PC ocupado, o Shell inteiro parava: o WlanOpenHandle levou 3,6 s (pilha de 22/11/2026, 15:14).
+// Uma thread só lê; a interface pega a última resposta e redesenha quando chega uma diferente.
+const UINT WM_BARSTATUS = WM_APP + 42;
+std::mutex g_stMx;
+Status g_stLido;
+
+void PedeStatus() {
+    static HANDLE pedido = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    static std::once_flag uma;
+    std::call_once(uma, [] {
+        std::thread([] {
+            CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+            Status st;
+            while (WaitForSingleObject(pedido, INFINITE) == WAIT_OBJECT_0) {
+                LerStatus(st);
+                bool mudou;
+                {
+                    std::lock_guard<std::mutex> l(g_stMx);
+                    const Status& a = g_stLido;
+                    mudou = a.wlan != st.wlan || a.wifiOn != st.wifiOn || a.wired != st.wired || a.batt != st.batt || a.charging != st.charging ||
+                            a.pct != st.pct || a.bt != st.bt || a.sound != st.sound || a.muted != st.muted || a.phones != st.phones ||
+                            a.vol != st.vol || a.ssid != st.ssid;
+                    g_stLido = st;
+                }
+                if (mudou && g_bar) PostMessageW(g_bar, WM_BARSTATUS, 0, 0);
+            }
+        }).detach();
+    });
+    SetEvent(pedido);
+}
+
+void PegaStatus() {
+    { std::lock_guard<std::mutex> l(g_stMx); g_st = g_stLido; }
     // fonte de entrada (teclado) do app da frente
     HWND fg = GetForegroundWindow();
     g_st.hkl = GetKeyboardLayout(fg ? GetWindowThreadProcessId(fg, nullptr) : 0);
+}
+
+void RefreshStatus() {
+    PedeStatus();
+    PegaStatus();
 }
 
 // "A" para o teclado americano (o "ABC" do Mac), senão a sigla do país do layout (BR, PT, ES…)
@@ -1237,8 +1282,8 @@ void Click(D2D1_POINT_2F p, bool right) {
     }
     case K_SPOT: spotlight::Toggle(); break;
     case K_NET: {
-        std::wstring ssid;
-        bool wifi = WifiName(ssid);
+        std::wstring ssid = g_st.ssid;
+        bool wifi = g_st.wifiOn;
         ShowAt(hit, { I(wifi ? L"Wi-Fi: " + ssid : L"Ethernet", 0, true), Sep(), I(Tr(L"Ajustes de Rede…"), 1) }, [](int) { Open(L"ms-settings:network"); });
         break;
     }
@@ -1322,6 +1367,7 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_BARDISPLAYS: menubar::Displays(); return 0;
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
     case WM_TIMER: RefreshStatus(); menubar::Update(); return 0;
+    case WM_BARSTATUS: PegaStatus(); menubar::Update(); return 0;
     case WM_SETTINGCHANGE:  // Windows trocou entre claro e escuro
         if (l && !lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet")) { menubar::ApplyTheme(); dock::ApplyTheme(); }
         break;

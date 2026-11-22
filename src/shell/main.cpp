@@ -578,10 +578,12 @@ static void EnsureScreenshot() {
     std::wstring cmd = L"\"" + shell::dir + L"\\" EXE_SCREENSHOT L"\" /residente";
     STARTUPINFOW si{ sizeof(si) };
     PROCESS_INFORMATION pi{};
-    if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-        CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
-        Log(L"Captura de Tela residente aberta");
-    }
+    std::thread([cmd, si, pi]() mutable {  // como o Finder reserva: abrir programa espera o disco
+        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+            CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+            Log(L"Captura de Tela residente aberta");
+        }
+    }).detach();
 }
 
 // pedido do atalho: 3 tela inteira, 4 região/janela, 5 barra de ferramentas; clip = Ctrl seguro
@@ -618,10 +620,13 @@ static void EnsureReserve() {
     STARTUPINFOW si{ sizeof(si) };
     si.dwFlags = STARTF_USESHOWWINDOW; si.wShowWindow = SW_HIDE;
     PROCESS_INFORMATION pi{};
-    if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
-        CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
-        Log(L"Finder reserva preparado");
-    }
+    // numa thread: com o disco cheio o CreateProcess levou 2,9 s e a interface esperava (pilha de 22/11/2026, 15:25)
+    std::thread([cmd, si, pi]() mutable {
+        if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+            CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+            Log(L"Finder reserva preparado");
+        }
+    }).detach();
 }
 
 // Pré-carga: lê os .exe dos outros apps do projeto para o cache de arquivos do Windows (memória de
