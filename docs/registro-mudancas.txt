@@ -1126,3 +1126,10 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   src\janelas\macjanela.cpp: PintaBarraNaFaixa() (NOREDIRECTIONBITMAP ou classe gdkWindow*); a faixa pinta a cor da barra com o canto contínuo (squircle, igual ao recorte; antes o arco de círculo deixava lascas nos cantos); a moldura (UpdateCorners) pinta as bordas dos lados e de baixo na cor da barra e usa essa cor nos cantos de baixo.
   Conferido com fotos só da janela do GIMP (apagadas): barra, lados, cantos e embaixo pintados nas duas janelas (boas-vindas e principal).
   DESFAZER: reverter o commit.
+
+[2026-11-22 14:40] Issue #26, continuação (GIMP e mods de "janela gelatina" do Windhawk):
+  - Ao clicar para mover, a moldura (MacJanelaCanto) se escondia (WM_ENTERSIZEMOVE / UpdateCorners com in->moving) e, no GTK, é ela que pinta as bordas: os lados ficavam transparentes no arraste. Nas janelas PintaBarraNaFaixa a moldura fica e acompanha.
+  - Window Wobble (window-wobble, HeyJeay; roda dentro do app): fotografa a janela com PrintWindow(PW_RENDERFULLCONTENT) e balança a foto; a barra e a moldura (janelas nossas por cima) não saíam nela, e fora do nosso canto a foto vinha preta (o mod só arredonda 8 px). PatchWobble() troca o PrintWindow na tabela de importação só do módulo window-wobble_*.dll; PrintWindowNosso() desenha na foto os cantos na cor da janela, a moldura e a barra (Info.fotoBarra / fotoMoldura, a última imagem de cada uma). Info achado pela propriedade MacJanelaInfo (o mod tira a foto em outra thread).
+  - Wobbly Windows (wobbly-windows, dentro do dwm.exe): a janela deforma no compositor; as nossas janelas por cima não têm como acompanhar a deformação. Sem correção.
+  Não testado com arraste de verdade (sem SendInput); no PC o Window Wobble está desligado no Windhawk e o Wobbly Windows ligado.
+  DESFAZER: reverter o commit.

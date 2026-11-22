@@ -17,6 +17,7 @@
 #include <vector>
 #include <cmath>
 #include <map>
+#include <psapi.h>
 #include "../comum/sombra.h"
 #include "../comum/semaforo.h"
 #include "../comum/gancho_mapa.h"
@@ -123,6 +124,10 @@ struct Info {
     COLORREF topc[2]{ CLR_INVALID, CLR_INVALID };    // e junto aos de cima, quando o próprio app desenha ali (barra unificada)
     // o que a moldura desenhou da última vez (W, H, raio, cor de cima, de baixo esq./dir., escuro): igual, só anda
     UINT32 cornerKey[10]{};
+    // a última imagem da barra e da moldura (pré-multiplicadas): entram na foto da janela que o Window Wobble (mod do
+    // Windhawk) tira com PrintWindow, onde as nossas janelas por cima não aparecem (issue #26)
+    std::vector<UINT32> fotoBarra, fotoMoldura;
+    SIZE fotoBarraSz{}, fotoMolduraSz{};
 };
 
 bool Dark() {
@@ -204,6 +209,77 @@ bool TemaGolden();                   // mais abaixo: macOS 27 Golden Gate (liqui
 int CornerRadius(HWND h);  // mais abaixo: o canto da janela (px)
 COLORREF CapColor(Info* in);  // mais abaixo: a cor da barra
 // a barra que o PaintNC pinta com GDI não aparece nesta janela: a faixa pinta a cor dela (issues #20 e #26)
+// Window Wobble (mod do Windhawk, roda dentro do app): tira a foto da janela com PrintWindow(PW_RENDERFULLCONTENT) e
+// balança a foto. As nossas janelas por cima (barra com as bolinhas, moldura das bordas e dos cantos) não saem nela: a
+// barra "sumia" ao arrastar e, no GIMP, as bordas ficavam transparentes (issue #26). O PrintWindow que o mod importa
+// passa por aqui: depois da foto, desenhamos a barra e a moldura nela, onde estão na tela.
+using PrintWindowFn = BOOL(WINAPI*)(HWND, HDC, UINT);
+PrintWindowFn g_printWindow;
+void DesenhaFoto(HDC dc, HWND alvo, HWND janela, const std::vector<UINT32>& px, SIZE sz, const RECT& wr) {
+    if (!janela || !IsWindowVisible(janela) || px.size() != (size_t)sz.cx * sz.cy || sz.cx <= 0 || sz.cy <= 0) return;
+    RECT r; if (!GetWindowRect(janela, &r)) return;
+    HDC mem = CreateCompatibleDC(dc);
+    BITMAPINFO bi{}; bi.bmiHeader = { sizeof(BITMAPINFOHEADER), sz.cx, -sz.cy, 1, 32, BI_RGB };
+    void* bits = nullptr;
+    HBITMAP bmp = CreateDIBSection(mem, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (bmp && bits) {
+        memcpy(bits, px.data(), px.size() * 4);
+        HGDIOBJ old = SelectObject(mem, bmp);
+        BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
+        GdiAlphaBlend(dc, r.left - wr.left, r.top - wr.top, sz.cx, sz.cy, mem, 0, 0, sz.cx, sz.cy, bf);
+        SelectObject(mem, old);
+    }
+    if (bmp) DeleteObject(bmp);
+    DeleteDC(mem);
+    (void)alvo;
+}
+void DesenhaNossasNaFoto(HWND h, HDC dc);  // mais abaixo (precisa do Info inteiro)
+BOOL WINAPI PrintWindowNosso(HWND h, HDC dc, UINT f) {
+    BOOL ok = g_printWindow ? g_printWindow(h, dc, f) : FALSE;
+    if (ok) { __try { DesenhaNossasNaFoto(h, dc); } __except (EXCEPTION_EXECUTE_HANDLER) {} }
+    return ok;
+}
+// troca o PrintWindow na tabela de importação do módulo do Window Wobble (só dele: o resto do app fica como está)
+bool PatchIat(HMODULE mod) {
+    auto* base = (BYTE*)mod;
+    auto* dos = (IMAGE_DOS_HEADER*)base;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+    auto* nt = (IMAGE_NT_HEADERS*)(base + dos->e_lfanew);
+    auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
+    if (!dir.VirtualAddress) return false;
+    bool done = false;
+    for (auto* imp = (IMAGE_IMPORT_DESCRIPTOR*)(base + dir.VirtualAddress); imp->Name; imp++) {
+        if (_stricmp((const char*)(base + imp->Name), "user32.dll")) continue;
+        auto* thunk = (IMAGE_THUNK_DATA*)(base + imp->FirstThunk);
+        auto* orig = imp->OriginalFirstThunk ? (IMAGE_THUNK_DATA*)(base + imp->OriginalFirstThunk) : thunk;
+        for (; orig->u1.AddressOfData; orig++, thunk++) {
+            if (IMAGE_SNAP_BY_ORDINAL(orig->u1.Ordinal)) continue;
+            auto* byName = (IMAGE_IMPORT_BY_NAME*)(base + orig->u1.AddressOfData);
+            if (strcmp((const char*)byName->Name, "PrintWindow")) continue;
+            if ((void*)thunk->u1.Function == (void*)&PrintWindowNosso) return true;
+            DWORD old;
+            if (!VirtualProtect(&thunk->u1.Function, sizeof(void*), PAGE_READWRITE, &old)) return false;
+            if (!g_printWindow) g_printWindow = (PrintWindowFn)thunk->u1.Function;
+            InterlockedExchangePointer((void**)&thunk->u1.Function, (void*)&PrintWindowNosso);
+            VirtualProtect(&thunk->u1.Function, sizeof(void*), old, &old);
+            done = true;
+        }
+    }
+    return done;
+}
+// procura o módulo do Window Wobble (window-wobble_<versão>_<n>.dll) no processo; no máximo a cada 3 s
+void PatchWobble() {
+    static DWORD at; static bool feito;
+    if (feito || (at && GetTickCount() - at < 3000)) return;
+    at = GetTickCount();
+    HMODULE mods[512]; DWORD need = 0;
+    if (!K32EnumProcessModules(GetCurrentProcess(), mods, sizeof(mods), &need)) return;
+    for (DWORD i = 0; i < std::min<DWORD>(need / sizeof(HMODULE), 512); i++) {
+        wchar_t n[MAX_PATH]; if (!K32GetModuleBaseNameW(GetCurrentProcess(), mods[i], n, MAX_PATH)) continue;
+        if (!_wcsnicmp(n, L"window-wobble_", 14) && PatchIat(mods[i])) feito = true;
+    }
+}
+
 bool PintaBarraNaFaixa(HWND h) {
     if (GetWindowLongW(h, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP) return true;  // Windows Terminal, WinUI
     wchar_t c[32] = {}; GetClassNameW(h, c, 32);
@@ -373,6 +449,24 @@ void Minis(Info* in) {
     int W = r.right - r.left, m = (int)std::lround(8 * Scale(in->owner));
     put(in->thSeta, in->setaW > 0, { fx + in->setaX, fy + in->setaY, fx + in->setaX + in->setaW, fy + in->setaY + in->setaH },
         { W - m - in->setaW, oy + in->setaY, W - m, oy + in->setaY + in->setaH });
+}
+
+void DesenhaNossasNaFoto(HWND h, HDC dc) {
+    auto* in = (Info*)GetPropW(h, L"MacJanelaInfo");
+    if (!in || in->owner != h || in->custom) return;
+    RECT wr; if (!GetWindowRect(h, &wr)) return;
+    // o mod tira o recorte com um arco fixo de 8 px e põe o resto opaco: fora do nosso canto (maior) a foto vinha preta,
+    // "cantinhos quadrados". Os quatro cantos levam a cor da janela ali antes da moldura (que desenha o arco por cima).
+    RECT box;
+    if (!IsZoomed(h) && GetWindowRgnBox(h, &box) != ERROR) {
+        int S = (int)std::ceil(SqExt((float)CornerRadius(h), (box.right - box.left) / 2.f, (box.bottom - box.top) / 2.f)) + 1;
+        COLORREF cor[4] = { CapColor(in), CapColor(in), in->bottom[0] != CLR_INVALID ? in->bottom[0] : CapColor(in), in->bottom[1] != CLR_INVALID ? in->bottom[1] : CapColor(in) };
+        RECT q[4] = { { box.left, box.top, box.left + S, box.top + S }, { box.right - S, box.top, box.right, box.top + S },
+                      { box.left, box.bottom - S, box.left + S, box.bottom }, { box.right - S, box.bottom - S, box.right, box.bottom } };
+        for (int i = 0; i < 4; i++) { HBRUSH br = CreateSolidBrush(cor[i]); FillRect(dc, &q[i], br); DeleteObject(br); }
+    }
+    DesenhaFoto(dc, h, in->corner[0], in->fotoMoldura, in->fotoMolduraSz, wr);
+    DesenhaFoto(dc, h, in->overlay, in->fotoBarra, in->fotoBarraSz, wr);
 }
 
 void Paint(Info* in) {
@@ -554,6 +648,8 @@ void Paint(Info* in) {
     SIZE sz{ w, h };
     BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     UpdateLayeredWindow(in->overlay, screen, &dst, &sz, mem, &src, 0, &bf, ULW_ALPHA);
+    GdiFlush();
+    if (bits) { in->fotoBarra.assign((UINT32*)bits, (UINT32*)bits + (size_t)w * h); in->fotoBarraSz = { w, h }; }
     if (in->custom) Minis(in);
     SelectObject(mem, old);
     DeleteObject(bmp);
@@ -753,7 +849,8 @@ void KeepAbove(Info* in);  // mais abaixo
 // Só as faixas das bordas são calculadas (distância até o retângulo arredondado, por pixel).
 void UpdateCorners(Info* in, RECT vis) {
     HWND h = in->owner;
-    if (!in->rgn.cx || in->moving || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h) || Fullscreen(h)) { HideCorners(in); return; }
+    // GTK: a moldura é quem pinta as bordas; escondida no arraste, os lados ficavam transparentes enquanto a janela andava
+    if (!in->rgn.cx || (in->moving && !(!in->custom && PintaBarraNaFaixa(h))) || !IsWindowVisible(h) || IsIconic(h) || IsZoomed(h) || Fullscreen(h)) { HideCorners(in); return; }
     int r = CornerRadius(h), S = (int)std::ceil(SqExt((float)r, (vis.right - vis.left) / 2.f, (vis.bottom - vis.top) / 2.f)) + 2;
     // cor embaixo: só lê da tela quando o ponto é mesmo desta janela (não coberto por outra)
     HDC screen = GetDC(nullptr);
@@ -860,6 +957,8 @@ void UpdateCorners(Info* in, RECT vis) {
     SIZE size{ W, H };
     BLENDFUNCTION bf{ AC_SRC_OVER, 0, 255, AC_SRC_ALPHA };
     if (UpdateLayeredWindow(fw, nullptr, &pos, &size, mem, &zero, 0, &bf, ULW_ALPHA)) memcpy(in->cornerKey, key, sizeof(key));
+    GdiFlush();
+    in->fotoMoldura.assign(px, px + (size_t)W * H); in->fotoMolduraSz = { W, H };
     SelectObject(mem, old);
     DeleteObject(bmp);
     DeleteDC(mem);
@@ -2073,7 +2172,8 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
     case WM_ENTERSIZEMOVE:
         in->moving = true;
         GetWindowRect(h, &in->moveStart);
-        HideCorners(in);  // a moldura atrasaria um quadro atrás da janela (a "linha" que a seguia); volta no fim
+        if (in->custom || !PintaBarraNaFaixa(h)) HideCorners(in);  // a moldura atrasaria um quadro atrás da janela (a "linha" que a seguia); volta no fim
+        PatchWobble();
         break;
     case WM_MOVING: {
         // o encaixe nas bordas (prévia e soltar) é do Shell (src\shell\encaixe.cpp), igual para todas as janelas
@@ -2165,7 +2265,7 @@ LRESULT CALLBACK OwnerProc(HWND h, UINT m, WPARAM w, LPARAM l, UINT_PTR, DWORD_P
         if (in->preview) { DestroyWindow(in->preview); in->preview = nullptr; }
         LRESULT r = DefSubclassProc(h, m, w, l);
         RemoveWindowSubclass(h, OwnerProc, SUBCLASS_ID);
-        RemovePropW(h, PROP); RemovePropW(h, PROP_MENU); RemovePropW(h, L"MacJanelaAmpliada");
+        RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaInfo"); RemovePropW(h, PROP_MENU); RemovePropW(h, L"MacJanelaAmpliada"); RemovePropW(h, L"MacJanelaInfo");
         delete in;
         return r;
     }
@@ -2225,7 +2325,9 @@ void Attach(HWND h, int mode) {
     in->tool = (GetWindowLongW(h, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) != 0;
     in->active = GetForegroundWindow() == h;
     SetPropW(h, PROP, (HANDLE)1);
-    if (!SetWindowSubclass(h, OwnerProc, SUBCLASS_ID, (DWORD_PTR)in)) { RemovePropW(h, PROP); delete in; return; }
+    SetPropW(h, L"MacJanelaInfo", (HANDLE)in);  // o PrintWindow do Window Wobble acha o Info por aqui (outra thread)
+    PatchWobble();
+    if (!SetWindowSubclass(h, OwnerProc, SUBCLASS_ID, (DWORD_PTR)in)) { RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaInfo"); delete in; return; }
     in->custom = mode == 2;
     if (!in->custom) {
         // sem título, ícone e botões do Windows (a barra fica só com a cor)
@@ -2297,7 +2399,7 @@ void Detach(HWND h, Info* in) {
         DwmSetWindowAttribute(h, DWMWA_NCRENDERING_POLICY, &on, sizeof(on));
     }
     if (in->custom) {
-        RemovePropW(h, L"MacJanelaAmpliada"); RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaPropria");
+        RemovePropW(h, L"MacJanelaAmpliada"); RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaInfo"); RemovePropW(h, L"MacJanelaPropria");
         RemoveWindowSubclass(h, OwnerProc, SUBCLASS_ID);
         delete in;
         if (g_lpSlot) GanchoAbas(false);
@@ -2314,7 +2416,7 @@ void Detach(HWND h, Info* in) {
     if (in->menu && !GetMenu(h)) SetMenu(h, in->menu);
     RemovePropW(h, PROP_MENU);
     RemovePropW(h, L"MacJanelaAmpliada");
-    RemovePropW(h, PROP);
+    RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaInfo");
     RemoveWindowSubclass(h, OwnerProc, SUBCLASS_ID);
     SetWindowPos(h, nullptr, 0, 0, 0, 0, SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
     delete in;
