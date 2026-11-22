@@ -30,3 +30,8 @@ cursor/Leopard/
 
 # Python bytecode of the tools
 __pycache__/
+
+# test screenshots of the login screen and the VMs: they show personal data (name, city, chats)
+docs/.png
+docs/authux-*.png
+docs/vm-*.png
