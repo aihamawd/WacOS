@@ -1204,3 +1204,7 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - Animações: src\shell\ui.cpp, um quadro por vez na fila (o mouse e o teclado não ficam atrás dos quadros a 174 Hz); Quick Look, Time Machine e a prévia do encaixe saíram do timer de 15,6 ms para o relógio da tela.
   Conferido instalado: 200 s de caça nos apps reais com 0 paradas (disco calmo nesse período); Spotlight, abrir tarefa, lista da bandeja. NÃO conferido na tela: Quick Look, Time Machine, prévia do encaixe; taxa de quadros não medida.
   DESFAZER: reverter o commit.
+
+[2026-11-22 18:02, hora do PC] Janelas comuns: cor dos cantos lida da tela no máximo 4 vezes por segundo.
+  - src/janelas/macjanela.cpp (UpdateCorners): dois GetPixel da tela por passo, na thread do app, engasgavam mover e redimensionar. Medido numa janela descartável: ver o commit.
+  DESFAZER: reverter o commit.

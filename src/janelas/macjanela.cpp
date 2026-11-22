@@ -88,6 +88,7 @@ struct Info {
     // Barra própria: os botões do Mac à esquerda, na própria linha do app (como o Chrome do Mac, sem barra a mais),
     // e por cima dos botões do app uma faixa da largura medida deles (MedirBarra)
     float patchR = 0;            // largura dos botões do app (pt); 0 = ainda não medida (PATCH_R)
+    DWORD corCantoAt = 0;        // quando leu da tela a cor dos cantos (UpdateCorners)
     bool capas = false;          // capas dos cantos à mostra (CapasCantos): os cantos do Finder por cima dos 8 px do DWM
     // Apps sem o gancho (Discord, Claude, VS Code: a barra é a página do app): o grupo de ícones do começo da linha, que
     // os botões do Mac cobririam (as setas do Discord), aparece logo depois deles, como no Mac (MedirBarra/Paint); os
@@ -899,8 +900,14 @@ void UpdateCorners(Info* in, RECT vis) {
     // moldura pinta essas bordas na cor da barra. Aí a tela nem é lida: a moldura delas acompanha o arraste, e cada
     // GetPixel da tela espera o compositor (duas esperas por movimento, dentro do app: o arraste engasgava).
     const bool ncPinta = !in->custom && PintaBarraNaFaixa(h);
-    HDC screen = GetDC(nullptr);
-    for (int i = 0; i < 2 && !ncPinta; i++) {
+    // Cada GetPixel da tela espera o compositor (~5 ms). Mover ou redimensionar sem arrastar (animação, encaixe, o
+    // próprio app) lia dois a cada passo, na thread do app: 10,6 ms por passo de mover e 27 de redimensionar (sem a
+    // barra 0,3 e 0,7; 22/11/2026). A cor vai junto com a janela: lê no máximo 4 vezes por segundo, o timer confirma.
+    const DWORD agora = GetTickCount() | 1;
+    const bool le = !in->corCantoAt || agora - in->corCantoAt >= 250;
+    if (le) in->corCantoAt = agora;
+    HDC screen = le ? GetDC(nullptr) : nullptr;
+    for (int i = 0; i < 2 && le && !ncPinta; i++) {
         POINT p{ i ? vis.right - 4 : vis.left + 3, vis.bottom - S - 2 };
         HWND at = WindowFromPoint(p);
         if (at && GetAncestor(at, GA_ROOT) == h) {
@@ -912,14 +919,14 @@ void UpdateCorners(Info* in, RECT vis) {
     // Em cima, cada canto com a cor dele quando é o app que desenha ali (barra unificada dos apps do WacOS). Com uma
     // cor só (a mais comum na faixa de cima), o Tempo com a lateral clara e o céu escuro ganhava um arco escuro
     // grosso no canto de cima à esquerda (issue #8, 21/11/2026). A barra do Mac por cima (outra janela) não conta.
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2 && le; i++) {
         in->topc[i] = CLR_INVALID;
         if (!UnifiedBar(h)) continue;
         POINT p{ i ? vis.right - 4 : vis.left + 3, vis.top + S + 2 };
         HWND at = WindowFromPoint(p);
         if (at && GetAncestor(at, GA_ROOT) == h) in->topc[i] = GetPixel(screen, p.x, p.y);
     }
-    ReleaseDC(nullptr, screen);
+    if (screen) ReleaseDC(nullptr, screen);
     HWND& fw = in->corner[0];
     if (fw && !IsWindow(fw)) { fw = nullptr; memset(in->cornerKey, 0, sizeof(in->cornerKey)); }  // a moldura se fechou sozinha (CornerProc)
     if (!fw) {
