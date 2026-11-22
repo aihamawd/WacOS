@@ -203,6 +203,12 @@ bool TemaTahoe(bool force = false);  // mais abaixo: tema Tahoe ligado no ajuste
 bool TemaGolden();                   // mais abaixo: macOS 27 Golden Gate (liquid_glass=1 + golden_gate=1)
 int CornerRadius(HWND h);  // mais abaixo: o canto da janela (px)
 COLORREF CapColor(Info* in);  // mais abaixo: a cor da barra
+// a barra que o PaintNC pinta com GDI não aparece nesta janela: a faixa pinta a cor dela (issues #20 e #26)
+bool PintaBarraNaFaixa(HWND h) {
+    if (GetWindowLongW(h, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP) return true;  // Windows Terminal, WinUI
+    wchar_t c[32] = {}; GetClassNameW(h, c, 32);
+    return !wcsncmp(c, L"gdkWindow", 9);  // GTK (GIMP 3, Inkscape...)
+}
 
 // Recorte arredondado [x0, x1) × [y0, y1) com raio r (px), simétrico e sempre por dentro do arco que a moldura
 // suavizada (UpdateCorners) desenha: um pixel só entra se o centro dele fica a 0,5 px ou mais para dentro do arco.
@@ -460,12 +466,32 @@ void Paint(Info* in) {
         // Windows, apps GTK/WinUI): a barra que o PaintNC pinta com GDI não aparece nelas, e com o recorte o DWM não
         // pinta nada: a barra ficava transparente, com o papel de parede atrás (issue #20, 21/11/2026). A cor da barra
         // vai aqui, na faixa, com os cantos de cima da janela.
-        else if (!in->custom && !in->tool && !UnifiedBar(in->owner) && (GetWindowLongW(in->owner, GWL_EXSTYLE) & WS_EX_NOREDIRECTIONBITMAP)) {
+        // GIMP 3 (GTK 3, gdkWindowToplevel) não tem WS_EX_NOREDIRECTIONBITMAP, mas a barra também ficava transparente
+        // (issue #26, 22/11/2026: reproduzido com o GIMP 3.2.8, sem nenhum mod do Windhawk): o GDK trata a moldura sozinho
+        // e o que o PaintNC pinta não aparece. Entra aqui também.
+        else if (!in->custom && !in->tool && !UnifiedBar(in->owner) && PintaBarraNaFaixa(in->owner)) {
             COLORREF cc = CapColor(in);
             b->SetColor(D2D1::ColorF(GetRValue(cc) / 255.f, GetGValue(cc) / 255.f, GetBValue(cc) / 255.f, 1));
             float R = IsZoomed(in->owner) ? 0.f : CornerRadius(in->owner) / sc;
             rt->PushAxisAlignedClip(D2D1::RectF(0, 0, W, H), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-            rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H + R + 1), R, R), b);
+            if (in->capas && R > 0) {  // com as capas o recorte da janela é o canto contínuo (squircle): o mesmo aqui, senão sobram lascas
+                float E = SqExt(R, 1e6f, H + R);
+                ID2D1PathGeometry* g = nullptr;
+                g_d2d->CreatePathGeometry(&g);
+                ID2D1GeometrySink* sk = nullptr;
+                if (g && SUCCEEDED(g->Open(&sk))) {
+                    sk->BeginFigure({ 0, H + 1 }, D2D1_FIGURE_BEGIN_FILLED);
+                    sk->AddLine({ 0, E });
+                    SqCanto(sk, E, E, E, false);
+                    sk->AddLine({ W - E, 0 });
+                    SqCanto(sk, W - E, E, E, true);
+                    sk->AddLine({ W, H + 1 });
+                    sk->EndFigure(D2D1_FIGURE_END_CLOSED);
+                    sk->Close(); sk->Release();
+                    rt->FillGeometry(g, b);
+                }
+                if (g) g->Release();
+            } else rt->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, W, H + R + 1), R, R), b);
             rt->PopAxisAlignedClip();
         }
         // os três botões no tamanho padrão do projeto (o do Monitor de Atividade): 14 pt, 23 pt entre centros
@@ -739,6 +765,11 @@ void UpdateCorners(Info* in, RECT vis) {
             if (c != CLR_INVALID) in->bottom[i] = c;
         }
     }
+    // GTK (GIMP 3) e quem desenha pela placa de vídeo: as bordas da moldura (lados e embaixo) que o PaintNC pinta com
+    // GDI também não aparecem; ficavam transparentes, e a cor lida embaixo era a do que está atrás (issue #26). A
+    // moldura pinta essas bordas na cor da barra.
+    const bool ncPinta = !in->custom && PintaBarraNaFaixa(h);
+    if (ncPinta) in->bottom[0] = in->bottom[1] = CapColor(in);
     // Em cima, cada canto com a cor dele quando é o app que desenha ali (barra unificada dos apps do WacOS). Com uma
     // cor só (a mais comum na faixa de cima), o Tempo com a lateral clara e o céu escuro ganhava um arco escuro
     // grosso no canto de cima à esquerda (issue #8, 21/11/2026). A barra do Mac por cima (outra janela) não conta.
@@ -791,11 +822,18 @@ void UpdateCorners(Info* in, RECT vis) {
     float outerA = bd.outA, innerA = bd.inA, outW = bd.outW, inW = bd.inW;  // contorno escuro / brilho, do tema (BordaDoTema)
     float hw = (vis.right - vis.left) / 2.f, hh = (vis.bottom - vis.top) / 2.f, cxm = M + hw, cym = M + hh;
     auto cov = [](float d) { return std::clamp(0.5f - d, 0.f, 1.f); };  // fração do pixel com distância <= 0
+    RECT cl{};  // área do app (fora dela, abaixo da barra, é borda: pintada quando ncPinta)
+    if (ncPinta) {
+        GetClientRect(h, &cl); MapWindowPoints(h, nullptr, (POINT*)&cl, 2);
+        OffsetRect(&cl, -(vis.left - M), -(vis.top - M));
+    }
     auto pixel = [&](int x, int y) {
         float qx, qy;
         float d = SqSdf(x + 0.5f - cxm, y + 0.5f - cym, hw, hh, (float)r, &qx, &qy);  // < 0 dentro (canto contínuo)
         float R = 0, G = 0, B = 0, A = 0;  // pré-multiplicado
         auto over = [&](float cr, float cg, float cb, float a) { R = cr * a + R * (1 - a); G = cg * a + G * (1 - a); B = cb * a + B * (1 - a); A = a + A * (1 - a); };
+        if (ncPinta && d < 0.5f && y >= cl.top && (x < cl.left || x >= cl.right || y >= cl.bottom))
+            over(GetRValue(top) / 255.f, GetGValue(top) / 255.f, GetBValue(top) / 255.f, cov(d));
         // arco suavizado: só nos cantos, na faixa junto ao arco (o recorte corta um pouco por dentro)
         if (qx > 0 && qy > 0 && d > -2.5f) {
             COLORREF c = y < H / 2 ? (in->topc[x >= W / 2] != CLR_INVALID ? in->topc[x >= W / 2] : top) : in->bottom[x >= W / 2];
@@ -808,6 +846,7 @@ void UpdateCorners(Info* in, RECT vis) {
         px[y * W + x] = (UINT32)std::lround(A * 255) << 24 | (UINT32)std::lround(R * 255) << 16 | (UINT32)std::lround(G * 255) << 8 | (UINT32)std::lround(B * 255);
     };
     int band = S + M + 1;
+    if (ncPinta) band = std::max<int>(band, std::max<int>(std::max<int>(cl.left, W - cl.right), H - cl.bottom) + 1);
     for (int y = 0; y < H; y++) {
         bool edgeRow = y < band || y >= H - band;
         if (edgeRow) { for (int x = 0; x < W; x++) pixel(x, y); }

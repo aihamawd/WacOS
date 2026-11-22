@@ -1120,3 +1120,9 @@ Compilado (tudo), instalado, Shell e reserva do Finder reiniciados às 23:07 sem
   - #28 Gênio: a janela da foto que cobre a janela no instante de minimizar era um retângulo de canto vivo; agora tem o canto arredondado do Windows (DWMWA_WINDOW_CORNER_PREFERENCE), menos maximizada.
   Não feitos (pedidos de recurso): Wallpaper Engine, Window Wobble, playlists, cor da barra seguindo a janela, prévia no Dock, cantos em janela maximizada, efeito "sugar". GIMP com a barra transparente de novo (#26): sem GIMP aqui para reproduzir.
   DESFAZER: reverter o commit.
+
+[2026-11-22 14:10] Issue #26: barra do GIMP transparente de novo. Reproduzido com o GIMP 3.2.8 (winget, só para o usuário), SEM Windhawk: não era o Window Wobble.
+  Causa: a correção do #20 só pintava a barra na faixa quando a janela tinha WS_EX_NOREDIRECTIONBITMAP; o GIMP 3 (GTK 3, classe gdkWindowToplevel) não tem, e o GDK trata a moldura sozinho: o que o PaintNC pinta com GDI não aparece (barra, lados e embaixo transparentes).
+  src\janelas\macjanela.cpp: PintaBarraNaFaixa() (NOREDIRECTIONBITMAP ou classe gdkWindow*); a faixa pinta a cor da barra com o canto contínuo (squircle, igual ao recorte; antes o arco de círculo deixava lascas nos cantos); a moldura (UpdateCorners) pinta as bordas dos lados e de baixo na cor da barra e usa essa cor nos cantos de baixo.
+  Conferido com fotos só da janela do GIMP (apagadas): barra, lados, cantos e embaixo pintados nas duas janelas (boas-vindas e principal).
+  DESFAZER: reverter o commit.
