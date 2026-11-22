@@ -182,9 +182,26 @@ GitHub Actions checks that every commit to `main` builds.
 Fair question for anything that replaces your taskbar. You don't have to trust the author:
 
 - **Source available.** Every file is in this repository: read it, and build it yourself (see [Build](#build)).
-- **Network.** WacOS only talks to the weather service (`api.open-meteo.com`, for the weather widget), Google search
-  suggestions (only while you type in Spotlight) and GitHub (to check for updates). No telemetry, no accounts.
-  Run it behind a firewall like simplewall or GlassWire and watch for yourself.
+- **Network.** No telemetry, no accounts. These are the hosts WacOS's own code contacts:
+  - `api.open-meteo.com`: the forecast. Receives the coordinates of your chosen cities (until you pick one, a city
+    guessed from your Windows time zone). The shell asks at startup and every 15 minutes, even with the widget
+    hidden (not in "Dock and menu bar only" mode); the Weather app does the same while it's open.
+  - `geocoding-api.open-meteo.com`: city search in Weather and Clock. Receives the name you search for and your
+    language.
+  - `date.nager.at`: public holidays in Calendar (on by default; untick that calendar to stop it). Receives the year
+    and the country code from your Windows region.
+  - `suggestqueries.google.com`: Spotlight suggestions. Receives what you type in Spotlight and your language, as
+    you type. On by default; `spotlight_google=0` in `%APPDATA%\Shell\ajustes.txt` turns it off.
+  - `api.github.com`, with `github.com` as the fallback: updates. The shell checks 90 seconds after it starts and every
+    6 hours (turning off the update notification doesn't stop the check), and so do the Software Update page and
+    `WacOSSetup.exe` when you update. The check also sends the installed commit's ID, to list what changed.
+  - `github.com` and `release-assets.githubusercontent.com`: the package download, when you choose to update.
+  - Only in the old `instalar.cmd`, for files missing from the package and only if you say yes:
+    `devimages-cdn.apple.com` (fonts), `raw.githubusercontent.com` (sounds) and `winget`, which uses its own hosts
+    (7-Zip, to unpack the fonts).
+
+  Links, web searches and the DeviantArt cursor page open in your browser. Run WacOS behind a firewall like
+  simplewall or GlassWire and watch for yourself (the update check shows up as `powershell.exe`).
 - **What it installs.** One scheduled task to start at sign-in, with normal user rights. No services, no drivers,
   no administrator rights. Uninstalling (Installed apps > WacOS) removes everything.
 - **Games are left alone.** The title bar DLL never loads into games, launchers or anything with anti-cheat: it
