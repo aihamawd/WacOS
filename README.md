@@ -136,14 +136,21 @@ themes).
 2. Extract it anywhere and open **`WacOSSetup.exe`**: one app that installs, updates, changes and uninstalls WacOS,
    in the style of the macOS Installer.
 
-Apple's fonts, sounds and cursors can't be shipped in this repository, so the installer offers to fetch them on
-your own PC, from where their owners publish them:
+The release zip includes these fonts, sounds and cursors (they aren't in the repository, and `WacOSSetup.exe`
+doesn't download them). They belong to their owners and aren't covered by the WacOS license (see [License](#license)):
 
-- **SF Pro and SF Mono** from [developer.apple.com/fonts](https://developer.apple.com/fonts/) (Apple's license applies).
-  The `.dmg` is opened with 7-Zip, installed through `winget` if missing.
-- **macOS alert sounds** from [extratone/macOSsystemsounds](https://github.com/extratone/macOSsystemsounds), converted to WAV.
-- **macOS Tahoe cursor** by [jimmyxd2 on DeviantArt](https://www.deviantart.com/jimmyxd2/art/1208233550): the installer opens
-  the page, you download it, and it picks the file up from your Downloads folder.
+- **SF Pro and SF Mono**, Apple's fonts (`fontes` folder; [Apple's license](https://developer.apple.com/fonts/) applies).
+  Installing them is optional.
+- **macOS alert and interface sounds**, Apple's (`sons` folder). They are copied along with WacOS.
+- **macOS Tahoe cursor** by [jimmyxd2 on DeviantArt](https://www.deviantart.com/jimmyxd2/art/1208233550) (`cursor` folder).
+  Optional, and only offered with the full WacOS.
+- **Mac OS X cursor**, from a pack by RaZcaL inSIDe that credits Apple as the probable original author
+  (`cursor-leopard` folder). It is copied along with WacOS and used by the Leopard theme.
+
+If the fonts, alert sounds or Tahoe cursor are missing (for example, in a package you built yourself), the old
+`instalar.cmd` can offer to get them: the fonts from Apple (unpacked with 7-Zip, installed through `winget` if needed), 14 alert
+sounds from [extratone/macOSsystemsounds](https://github.com/extratone/macOSsystemsounds), and the cursor from its
+DeviantArt page, which you download yourself.
 
 WacOS installs for your user only (no administrator rights) in `%LOCALAPPDATA%\Programs\WacOS`.
 Everything it changes is logged in `instalacao.log` there. To uninstall, use **Settings > Apps > Installed apps >
