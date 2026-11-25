@@ -5,6 +5,8 @@
 //   Arquivos.exe [pasta]
 
 #include "finder.h"
+#include "../comum/mackeys-local.h"
+#include "../comum/localvolumes.h"
 #include "../comum/fonte_cjk.h" // a reserva para coreano, japonês e chinês
 #include <d2d1effects.h>  // Leopard: a perspectiva 3D do Cover Flow
 #pragma comment(lib, "dxguid.lib")
@@ -42,6 +44,7 @@
 #include "../comum/idioma.h"
 #include "../comum/vidro.h"
 #include "pastacor.h"  // Personalizar Pasta: cor e símbolo
+#include "../comum/fileprogress.h"
 #include "../comum/abrircom.h"  // áudio abre no Música
 #include "../comum/semaforo.h"
 #include "../comum/leopard.h"  // tema Mac OS X Leopard: barra metálica unificada
@@ -81,9 +84,10 @@ const float ICON_MIN = 32, ICON_MAX = 160, SLIDER_W = 70;  // só o trilho, como
 // Tamanho dos ícones (controle deslizante na barra de baixo, como no Finder).
 static float g_icon = 64;
 static float Icon() { return g_icon; }
-static float CellMinW() { return std::max(96.f, g_icon + 38); }
-static float CellH() { return g_icon + 56.5f; }
-static float LabelW() { return std::max(98.f, g_icon + 34); }
+static bool ComputerGrid();
+static float CellMinW() { return ComputerGrid()?std::max(168.f,g_icon+38):std::max(96.f, g_icon + 38); }
+static float CellH() { return g_icon + (ComputerGrid()?92.f:56.5f); }
+static float LabelW() { return ComputerGrid()?CellMinW()-16:std::max(98.f, g_icon + 34); }
 
 enum : UINT { WM_APP_THUMB = WM_APP + 1, WM_APP_CHANGE = WM_APP + 2, WM_APP_SEARCH = WM_APP + 3, WM_APP_MEDIA = WM_APP + 4, WM_APP_WARMUP = WM_APP + 5, WM_APP_INFO = WM_APP + 6, WM_APP_QUADRO = WM_APP + 7 };
 enum : UINT_PTR { T_SCROLL = 1, T_RELOAD = 2, T_CARET = 3, T_AUTOSCROLL = 4, T_SCROLLBAR = 5, T_SEARCH = 7, T_MEDIA = 8, T_WARMUP = 9, T_SLOWRENAME = 10, T_TAHOE = 11, T_FRENTE = 12, T_DRIVES = 13 };
@@ -124,6 +128,7 @@ struct SideEntry {
     UINT32 tagColor = 0;     // etiqueta: bolinha colorida (0xRRGGBB) no lugar do ícone
     int tag = -1;            // etiqueta: índice da cor
     int fav = -1;            // favorito: posição em g_favs (editável)
+    bool cosmetic = false; // display-only AirDrop; never a filesystem target
 };
 
 static HWND g_hwnd;
@@ -143,12 +148,13 @@ static bool g_reserva;  // Finder escondido de reserva (mantido pelo Shell), esp
 static std::wstring g_folder;  // vazio quando a "pasta" aberta é uma etiqueta
 static int g_tagView = -1;     // etiqueta aberta pela barra lateral (-1 = pasta de verdade)
 const int VIEW_COMPUTER = tags::COUNT;  // g_tagView especial: "Este Computador" (os discos)
+static bool ComputerGrid(){return g_tagView==VIEW_COMPUTER;}
 const int VIEW_TRASH = tags::COUNT + 1;  // g_tagView especial: a Lixeira (do Windows), dentro do Finder
 const int VIEW_SMART = tags::COUNT + 2;  // Leopard, "Buscar por": VIEW_SMART + 0..5 (search::Smart)
 const wchar_t* SMART_NAMES[6] = { L"Hoje", L"Ontem", L"Semana Passada", L"Todas as Imagens", L"Todos os Filmes", L"Todos os Documentos" };
 static std::wstring VirtualName(int v) {
     if (v >= VIEW_SMART && v < VIEW_SMART + 6) return Tr(SMART_NAMES[v - VIEW_SMART]);
-    return v == VIEW_COMPUTER ? Tr(L"Este Computador") : v == VIEW_TRASH ? Tr(L"Lixeira") : Tr(tags::names[v]);
+    return v == VIEW_COMPUTER ? TrPick(L"Computador",L"Computer") : v == VIEW_TRASH ? Tr(L"Lixeira") : Tr(tags::names[v]);
 }
 static std::vector<Entry> g_all;    // conteúdo da pasta
 static std::vector<Entry> g_items;  // o que aparece (filtrado pela busca)
@@ -275,6 +281,7 @@ static std::wstring Parent(const std::wstring& p) {
 }
 
 static std::wstring DisplayName(const std::wstring& path) {
+    if(auto label=localvolumes::Display(path);!label.empty())return label;
     if (path.size() <= 3) {  // raiz de disco: "Disco Local (C:)"
         SHFILEINFOW sfi{};
         if (SHGetFileInfoW(path.c_str(), 0, &sfi, sizeof(sfi), SHGFI_DISPLAYNAME)) return sfi.szDisplayName;
@@ -1376,7 +1383,7 @@ static void LoadTagItems() {
             if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE && type != DRIVE_REMOTE && type != DRIVE_CDROM) continue;
             Entry e;
             if (!EntryFromPath(root, e)) continue;
-            e.name = e.label = DisplayName(root);
+            e.label = DisplayName(root);
             e.path = root;
             g_all.push_back(std::move(e));
         }
@@ -1836,6 +1843,7 @@ DropSpot DropSpotAt(POINT px) {
     int row = HitSideRow(p);
     if (row >= 0 && !g_side[row].header) {
         const SideEntry& s = g_side[row];
+        if(s.cosmetic)return d;
         d.row = row;
         if (s.tag >= 0 && s.tag < tags::COUNT) { d.kind = DropSpot::TAG; d.index = s.tag; return d; }
         if (s.fav >= 0) {  // perto da borda de um favorito: insere ali; no meio: solta dentro da pasta
@@ -2554,7 +2562,20 @@ static void DrawSidebar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidCo
                     default: leoIcon = L"side pasta"; break;
                 }
             }
-            if (leoIcon && DrawLeoPng(dc, leoIcon, D2D1::RectF(16.7f + dx, cy - 8, 32.7f + dx, cy + 8))) {}
+            if(s.cosmetic){
+                // AirDrop symbol: concentric open arcs and central point.
+                float cx=24.7f+dx, ay=cy+1.f;
+                for(float radius:{3.6f,5.9f,8.0f}){
+                    for(int j=0;j<24;++j){
+                        float a=(35.f+290.f*j/24.f)*.01745329252f;
+                        float b=(35.f+290.f*(j+1)/24.f)*.01745329252f;
+                        Line(dc,br,cx+radius*sinf(a),ay+radius*cosf(a),
+                            cx+radius*sinf(b),ay+radius*cosf(b),1.f);
+                    }
+                }
+                dc->FillEllipse(D2D1::Ellipse({cx,ay},1.25f,1.25f),br);
+            }
+            else if (leoIcon && DrawLeoPng(dc, leoIcon, D2D1::RectF(16.7f + dx, cy - 8, 32.7f + dx, cy + 8))) {}
             else if (leoSide && pasta) DrawFolder(dc, D2D1::RectF(16.7f + dx, cy - 8, 32.7f + dx, cy + 8), s.glyph == 0xE8B7 ? 0 : s.glyph, br);
             else {
                 if (leoSide) br->SetColor(cur ? D2D1::ColorF(1, 1, 1, 1) : D2D1::ColorF(96 / 255.f, 110 / 255.f, 128 / 255.f, 1));
@@ -2900,12 +2921,22 @@ static float TextWidth(const std::wstring& s, IDWriteTextFormat* tf) {
 
 // issue #60: o espaço dos discos ("120 GB disponíveis de 476 GB"), como o Finder mostra com "Mostrar Informações do
 // Item". Só discos locais (fixos e removíveis): o de rede pode demorar a responder.
-static std::wstring DriveInfo(const std::wstring& path, bool curto = false) {  // curto: só o livre (embaixo do ícone)
+struct DriveCapacity { ULONGLONG free=0,total=0; };
+static DriveCapacity ReadDriveCapacity(const std::wstring& path) {
+    if(!localvolumes::IsRoot(path))return {};
+    UINT type=GetDriveTypeW(path.c_str());
+    if(type!=DRIVE_FIXED&&type!=DRIVE_REMOVABLE)return {};
+    ULARGE_INTEGER fr{},total{};
+    if(!GetDiskFreeSpaceExW(path.c_str(),&fr,&total,nullptr)||!total.QuadPart)return {};
+    return {std::min(fr.QuadPart,total.QuadPart),total.QuadPart};
+}
+static std::wstring DriveInfo(const std::wstring& path, bool curto = false) {
     if (path.size() != 3 || path[1] != L':' || path[2] != L'\\') return L"";
     UINT type = GetDriveTypeW(path.c_str());
     if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE) return L"";
     ULARGE_INTEGER fr{}, total{};
-    if (!GetDiskFreeSpaceExW(path.c_str(), &fr, &total, nullptr) || !total.QuadPart) return L"";
+    auto cap=ReadDriveCapacity(path); if(!cap.total)return L"";
+    fr.QuadPart=cap.free;total.QuadPart=cap.total;
     wchar_t a[64], b[64], out[160];
     StrFormatByteSizeW((LONGLONG)fr.QuadPart, a, 64);
     StrFormatByteSizeW((LONGLONG)total.QuadPart, b, 64);
@@ -3385,14 +3416,30 @@ static void DrawIconGrid(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
             br->SetColor(pal.text);
         }
         dc->DrawTextLayout({ lr.left, lr.top }, tl, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        if (g_tagView == VIEW_COMPUTER) {  // discos: o espaço livre embaixo do nome, em azul (issue #60)
-            DWRITE_TEXT_METRICS m{}; tl->GetMetrics(&m);
-            std::wstring info = DriveInfo(e.path, true);
-            if (!info.empty() && m.lineCount == 1) {
-                g_tfLabel->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                br->SetColor(pal.accent);
-                float y = lr.top + m.top + m.height + 1;
-                dc->DrawTextW(info.c_str(), (UINT32)info.size(), g_tfLabel, D2D1::RectF(lr.left, y, lr.right, y + m.height * 2 + 2), br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        if (g_tagView == VIEW_COMPUTER) {
+            auto cap=ReadDriveCapacity(e.path);
+            if(cap.total){
+                auto cell=ToView(CellDoc(i));
+                // Reserve the full label height even for two-line volume names.
+                float y=lr.bottom+2, left=cell.left+14, right=cell.right-14;
+                float used=1.f-(float)((double)cap.free/cap.total);
+                wchar_t freeText[64]{},totalText[64]{};
+                StrFormatByteSizeW((LONGLONG)cap.free,freeText,64);
+                StrFormatByteSizeW((LONGLONG)cap.total,totalText,64);
+                std::wstring a=std::wstring(freeText)+TrPick(L" livres",L" available");
+                std::wstring b=std::wstring(TrPick(L"de ",L"of "))+totalText;
+                br->SetColor(pal.text2);
+                dc->DrawTextW(a.c_str(),(UINT32)a.size(),g_tfPreviewInfo,D2D1::RectF(left,y,right,y+15),br,D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                dc->DrawTextW(b.c_str(),(UINT32)b.size(),g_tfPreviewInfo,D2D1::RectF(left,y+15,right,y+30),br,D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                float top=y+33, bottom=top+5;
+                br->SetColor(g_dark?D2D1::ColorF(.27f,.27f,.29f):D2D1::ColorF(.85f,.85f,.87f));
+                dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left,top,right,bottom),2.5f,2.5f),br);
+                float fill=(right-left)*std::clamp(used,0.f,1.f);
+                if(fill>0){
+                    br->SetColor(cap.free/(double)cap.total<.10?D2D1::ColorF(0xFF453A):D2D1::ColorF(0x0A84FF));
+                    float radius=std::min(2.5f,fill/2);
+                    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(left,top,left+fill,bottom),radius,radius),br);
+                }
             }
         }
         if (float dots = TagDotsWidth(e.tags)) {  // etiquetas antes da primeira linha do nome
@@ -4747,9 +4794,34 @@ static void RunVerb(const char* verb) {
     if (paths.empty()) return;
     std::wstring folder = g_folder.empty() ? Parent(paths[0]) : g_folder;
     if (g_folder.empty()) paths = SameFolderAs(paths);
-    HRESULT hr = ctxmenu::InvokeVerb(g_hwnd, folder, paths, verb);
+    HRESULT hr=E_FAIL;
+    bool usedProgress=false;
+    // Preserve native verb for permanent deletion, virtual items, removable/network
+    // drives and unsupported paths. Normal local recycling uses native IFileOperation.
+    if(!strcmp(verb,"delete")&&GetKeyState(VK_SHIFT)>=0){
+        bool local=true;
+        for(auto& path:paths){
+            if(path.size()<4||path[1]!=L':'||path[2]!=L'\\'||GetDriveTypeW(path.substr(0,3).c_str())!=DRIVE_FIXED||
+                GetFileAttributesW(path.c_str())==INVALID_FILE_ATTRIBUTES){local=false;break;}
+        }
+        if(local){
+            IFileOperation* op=nullptr;
+            if(SUCCEEDED(CoCreateInstance(CLSID_FileOperation,nullptr,CLSCTX_ALL,IID_PPV_ARGS(&op)))){
+                bool ready=SUCCEEDED(op->SetOwnerWindow(g_hwnd))&&SUCCEEDED(op->SetOperationFlags(FOF_ALLOWUNDO|FOFX_RECYCLEONDELETE|FOF_WANTNUKEWARNING));
+                for(auto& path:paths){
+                    if(!ready)break;
+                    IShellItem* item=nullptr;
+                    ready=SUCCEEDED(SHCreateItemFromParsingName(path.c_str(),nullptr,IID_PPV_ARGS(&item)));
+                    if(item){if(ready)ready=SUCCEEDED(op->DeleteItem(item,nullptr));item->Release();}
+                }
+                if(ready){usedProgress=true;hr=fileprogress::Perform(op,g_dark);}
+                op->Release();
+            }
+        }
+    }
+    if(!usedProgress)hr=ctxmenu::InvokeVerb(g_hwnd,folder,paths,verb);
     if (FAILED(hr)) Flash(Tr(L"Não foi possível concluir a ação"));
-    else if (!strcmp(verb, "delete")) RecordTrash(paths);
+    if (!strcmp(verb, "delete") && (SUCCEEDED(hr)||usedProgress)) RecordTrash(paths);
 }
 
 static void RemoveFavorite(int fav);
@@ -4909,9 +4981,10 @@ static void DuplicateItems(const std::vector<std::wstring>& paths) {
             op->CopyItem(it, dir, last.c_str(), nullptr);
         if (it) it->Release(); if (dir) dir->Release();
     }
-    op->PerformOperations();
+    HRESULT hr=fileprogress::Perform(op,g_dark);
+    BOOL aborted=FALSE;op->GetAnyOperationsAborted(&aborted);
     op->Release();
-    if (paths.size() == 1) g_selectAfterReload = last;
+    if (SUCCEEDED(hr)&&!aborted&&paths.size() == 1) g_selectAfterReload = last;
     Reload();
 }
 
@@ -4990,7 +5063,7 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
                 en->Release();
             }
             if (!with.sub.empty()) with.sub.push_back(sep);
-            with.sub.push_back(I(Tr(L"Outro…"), M_OTHER));
+            {auto other=I(Tr(L"Outro…"), M_OTHER);other.disabled=paths.size()!=1;with.sub.push_back(other);}
             items.push_back(with);
         }
         items.push_back(sep);
@@ -5098,7 +5171,15 @@ static void ShowMacMenu(POINT screen, const std::wstring& folder, const std::vec
             } else ShellExecuteW(g_hwnd, verb, p.c_str(), nullptr, dir.c_str(), SW_SHOWNORMAL);
         }
         break;
-    case M_OTHER: ctxmenu::InvokeVerb(g_hwnd, base, paths, "openas"); break;
+    case M_OTHER: {
+        if(paths.size()==1){
+            // Do not dispatch through third-party context-menu extensions.
+            OPENASINFO oa{paths[0].c_str(),nullptr,OAIF_EXEC};
+            HRESULT hr=SHOpenWithDialog(g_hwnd,&oa);
+            Log(L"Open With Other: 0x%08X",(unsigned)hr);
+        }
+        break;
+    }
     case M_TRASH: RunVerb("delete"); break;
     case M_INFO: GetInfo(paths.empty() ? std::vector<std::wstring>{ folder } : paths); break;
     case M_RENAME: for (int i = 0; i < (int)g_items.size(); i++) if (SamePath(g_items[i].path, paths[0])) { StartRename(i); break; } break;
@@ -5808,7 +5889,7 @@ static void DrawScopeBar(ID2D1DeviceContext* dc, const Palette& pal, ID2D1SolidC
     dc->FillRectangle(bar, br);
     br->SetColor(pal.text2);
     dc->DrawTextW(Tr(L"Buscar:"), (UINT32)wcslen(Tr(L"Buscar:")), g_tfQlButton, D2D1::RectF(Lay::SIDEBAR_W + 14, y, Lay::SIDEBAR_W + 62, y + SCOPE_H), br);
-    std::wstring labels[2] = { Tr(L"Este Computador"), L"“" + DisplayName(g_searchHome) + L"”" };
+    std::wstring labels[2] = { TrPick(L"Computador",L"Computer"), L"“" + DisplayName(g_searchHome) + L"”" };
     for (int k = 0; k < 2; k++) {
         auto r = ScopeBtnRect(k);
         bool on = g_searchScope == k;
@@ -6094,8 +6175,10 @@ static void PickerSelectionChanged() {
 static LRESULT OnLaunchRequest(const COPYDATASTRUCT* cd);  // reserva recebendo um pedido (mais abaixo)
 static void FinderSettings();
 
-static bool HandleKey(UINT vk) {
-    bool ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0, alt = GetKeyState(VK_MENU) < 0;
+static bool HandleKey(UINT vk,int command=-1) {
+    bool ctrl = command>=0||GetKeyState(VK_CONTROL)<0;
+    bool shift=command>=0?(command&1)!=0:GetKeyState(VK_SHIFT)<0;
+    bool alt=command>=0?(command&2)!=0:GetKeyState(VK_MENU)<0;
     g_caretOn = true;
 
     if (g_renameIdx >= 0) {
@@ -6290,7 +6373,7 @@ static void PathMenu() {
         it.checked = false;
         items.push_back(it);
     }
-    ctxmenu::Item pc; pc.label = Tr(L"Este Computador"); pc.icon = 0xE7F4; pc.id = 1000; items.push_back(pc);
+    ctxmenu::Item pc; pc.label = TrPick(L"Computador",L"Computer"); pc.icon = 0xE7F4; pc.id = 1000; items.push_back(pc);
     ctxmenu::Item sepT; sepT.separator = true; items.push_back(sepT);
     ctxmenu::Item cp; cp.label = CopyPathLabel({ g_folder }); cp.icon = 0xE71B; cp.id = 2000; items.push_back(cp);
     float tx = ToolRect(TB_FWD).right + 12;
@@ -6366,6 +6449,7 @@ static void ApplyWindowTheme() {
 }
 
 static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if(m==localkeys::Message()){if(localkeys::Accept(1,(UINT)w,(l&1)!=0,(l&2)!=0))HandleKey((UINT)w,(int)l);return 0;}
     switch (m) {
     case WM_INITMENUPOPUP: case WM_DRAWITEM: case WM_MEASUREITEM: case WM_MENUCHAR: {
         LRESULT r = 0;
@@ -6710,7 +6794,7 @@ static LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (row < (int)g_side.size() && HitSideRow(p) == row) {
                 FocusSearch(false);
                 if (g_side[row].tag >= 0) NavigateTag(g_side[row].tag);
-                else Navigate(g_side[row].path);
+                else if(!g_side[row].cosmetic)Navigate(g_side[row].path);
             }
             return 0;
         }
@@ -7047,7 +7131,7 @@ static void LoadFavorites() {
         { &FOLDERID_Recent, Tr(L"Recentes"), 0xE823 },
         { &FOLDERID_CommonPrograms, Tr(L"Aplicativos"), 0xE71D },  // atalhos do menu Iniciar
         { &FOLDERID_Desktop, Tr(L"Mesa"), 0xE7F4 }, { &FOLDERID_Documents, Tr(L"Documentos"), 0xE8A5 },
-        { &FOLDERID_Downloads, Tr(L"Downloads"), 0xE896 }, { &FOLDERID_Pictures, Tr(L"Imagens"), 0xE91B },
+        { &FOLDERID_Downloads, Tr(L"Downloads"), 0xE896 }, { &FOLDERID_Pictures, TrPick(L"Imagens",L"Pictures"), 0xE91B },
         { &FOLDERID_Music, Tr(L"Músicas"), 0xE8D6 }, { &FOLDERID_Videos, Tr(L"Vídeos"), 0xE714 },
     };
     for (auto& d : defs) {
@@ -7058,6 +7142,27 @@ static void LoadFavorites() {
     if (!home.empty()) g_favs.push_back({ home.substr(home.find_last_of(L'\\') + 1), home, 0xE80F });
 }
 
+static std::wstring ICloudDriveFolder(){
+    auto profile=KnownFolder(FOLDERID_Profile);
+    if(profile.empty())return {};
+    auto path=profile+L"\\iCloudDrive";
+    DWORD a=GetFileAttributesW(path.c_str());
+    return a!=INVALID_FILE_ATTRIBUTES&&(a&FILE_ATTRIBUTE_DIRECTORY)?path:L"";
+}
+// Existing cloud directories only; no sync or filesystem changes.
+static void AddICloudSidebar(){
+    if(!g_sideCloud)return;
+    auto root=ICloudDriveFolder();
+    if(root.empty())return;
+    g_side.push_back({L"iCloud",L"",0,true});
+    g_side.push_back({L"iCloud Drive",root,0xE753,false});
+    for(auto child:{std::pair<const wchar_t*,wchar_t>{L"Desktop",0xE7F4},{L"Documents",0xE8A5}}){
+        auto path=root+L"\\"+child.first;
+        DWORD a=GetFileAttributesW(path.c_str());
+        if(a!=INVALID_FILE_ATTRIBUTES&&(a&FILE_ATTRIBUTE_DIRECTORY))
+            g_side.push_back({child.first,path,child.second,false});
+    }
+}
 static void BuildSidebar() {
     // guarda quais seções estavam recolhidas
     std::vector<std::wstring> collapsed;
@@ -7073,10 +7178,16 @@ static void BuildSidebar() {
                            { &FOLDERID_Music, 0xE8D6 }, { &FOLDERID_Videos, 0xE714 }, { &FOLDERID_Profile, 0xE80F }, { &FOLDERID_SkyDrive, 0xE753 } };
     for (auto& k : special) { std::wstring p = KnownFolder(*k.id); if (!p.empty()) g_emblems.push_back({ p, k.glyph }); }
 
+    const auto pictures=KnownFolder(FOLDERID_Pictures);
+    const auto oneDrive=KnownFolder(FOLDERID_SkyDrive);
+    auto favoriteLabel=[&](const Fav& f){
+        if(!pictures.empty()&&SamePath(f.path,pictures))return std::wstring(TrPick(L"Imagens",L"Pictures"));
+        return f.label;
+    };
     const bool leoSide = !g_tahoe && tahoe::Leopard();
     auto devices = [&](const std::wstring& title) {
         g_side.push_back({ title, L"", 0, true });
-        { SideEntry pc{ Tr(L"Este Computador"), L"", 0xE7F4, false }; pc.tag = VIEW_COMPUTER; g_side.push_back(pc); }
+        { SideEntry pc{ TrPick(L"Computador",L"Computer"), L"", 0xE7F4, false }; pc.tag = VIEW_COMPUTER; g_side.push_back(pc); }
         DWORD drives = GetLogicalDrives();
         for (int d = 0; d < 26; d++) {
             if (!(drives & (1u << d))) continue;
@@ -7084,7 +7195,7 @@ static void BuildSidebar() {
             UINT type = GetDriveTypeW(root.c_str());
             if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE && type != DRIVE_REMOTE) continue;
             SHFILEINFOW sfi{};
-            std::wstring label = SHGetFileInfoW(root.c_str(), 0, &sfi, sizeof(sfi), SHGFI_DISPLAYNAME) ? sfi.szDisplayName : root;
+            std::wstring label = DisplayName(root);
             g_side.push_back({ label, root, (wchar_t)(type == DRIVE_REMOVABLE ? 0xE88E : 0xEDA2), false });
         }
     };
@@ -7093,37 +7204,36 @@ static void BuildSidebar() {
         // Finder do 10.5), sem Etiquetas
         g_side.push_back({ Tr(L"Favoritos"), L"", 0, true });
         for (int i = 0; i < (int)g_favs.size(); i++) {
-            SideEntry e{ g_favs[i].label, g_favs[i].path, g_favs[i].glyph, false };
+            if(!oneDrive.empty()&&SamePath(g_favs[i].path,oneDrive))continue;
+        SideEntry e{ favoriteLabel(g_favs[i]), g_favs[i].path, g_favs[i].glyph, false };
             e.fav = i;
             g_side.push_back(e);
         }
         devices(Tr(L"Dispositivos"));
-        std::wstring cl = KnownFolder(FOLDERID_SkyDrive);
-        if (!cl.empty() && GetFileAttributesW(cl.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            g_side.push_back({ Tr(L"Compartilhado"), L"", 0, true });
-            g_side.push_back({ L"OneDrive", cl, 0xE753, false });
-        }
+        AddICloudSidebar();
         g_side.push_back({ Tr(L"Buscar Por"), L"", 0, true });
         const wchar_t smartGlyph[6] = { 0xE823, 0xE823, 0xE823, 0xE91B, 0xE714, 0xE8A5 };  // relógio ×3, imagem, filme, documento
         for (int k = 0; k < 6; k++) { SideEntry e{ Tr(SMART_NAMES[k]), L"", smartGlyph[k], false }; e.tag = VIEW_SMART + k; g_side.push_back(e); }
     } else {
     g_side.push_back({ Tr(L"Favoritos"), L"", 0, true });
     for (int i = 0; i < (int)g_favs.size(); i++) {
-        SideEntry e{ g_favs[i].label, g_favs[i].path, g_favs[i].glyph, false };
+        if(!oneDrive.empty()&&SamePath(g_favs[i].path,oneDrive))continue;
+        SideEntry e{ favoriteLabel(g_favs[i]), g_favs[i].path, g_favs[i].glyph, false };
         e.fav = i;
         g_side.push_back(e);
     }
 
-    // OneDrive faz o papel do iCloud Drive
-    std::wstring cloud = g_sideCloud ? KnownFolder(FOLDERID_SkyDrive) : L"";
-    if (!cloud.empty() && GetFileAttributesW(cloud.c_str()) != INVALID_FILE_ATTRIBUTES) {
-        g_side.push_back({ L"OneDrive", L"", 0, true });
-        g_side.push_back({ L"OneDrive", cloud, 0xE753, false });
-    }
+    // Cosmetic AirDrop belongs to Favorites, directly after Recents.
+    SideEntry air{L"AirDrop",L"",0,false}; air.cosmetic=true;
+    auto recent=std::find_if(g_side.begin()+1,g_side.end(),[](const SideEntry& e){
+        return !e.header&&e.fav>=0&&e.glyph==0xE823;
+    });
+    g_side.insert(recent==g_side.end()?g_side.begin()+1:recent+1,air);
+    AddICloudSidebar();
 
     if (g_sideDrives) {
     g_side.push_back({ Tr(L"Locais"), L"", 0, true });
-    { SideEntry pc{ Tr(L"Este Computador"), L"", 0xE7F4, false }; pc.tag = VIEW_COMPUTER; g_side.push_back(pc); }
+    { SideEntry pc{ TrPick(L"Computador",L"Computer"), L"", 0xE7F4, false }; pc.tag = VIEW_COMPUTER; g_side.push_back(pc); }
     DWORD drives = GetLogicalDrives();
     for (int d = 0; d < 26; d++) {
         if (!(drives & (1u << d))) continue;
@@ -7131,7 +7241,7 @@ static void BuildSidebar() {
         UINT type = GetDriveTypeW(root.c_str());
         if (type != DRIVE_FIXED && type != DRIVE_REMOVABLE && type != DRIVE_REMOTE) continue;
         SHFILEINFOW sfi{};
-        std::wstring label = SHGetFileInfoW(root.c_str(), 0, &sfi, sizeof(sfi), SHGFI_DISPLAYNAME) ? sfi.szDisplayName : root;
+        std::wstring label = DisplayName(root);
         g_side.push_back({ label, root, (wchar_t)(type == DRIVE_REMOVABLE ? 0xE88E : 0xEDA2), false });
     }
     }
@@ -7213,14 +7323,13 @@ static void FinderSettings() {
         paths[i] = KnownFolder(*defs[i].id);
         if (paths[i].empty()) continue;
         ctxmenu::Item it; it.id = 1 + i; it.icon = defs[i].glyph;
-        it.label = defs[i].label ? Tr(defs[i].label) : nome(paths[i]);
+        it.label = *defs[i].id==FOLDERID_Pictures ? TrPick(L"Imagens",L"Pictures") : defs[i].label ? Tr(defs[i].label) : nome(paths[i]);
         for (auto& f : g_favs) if (!_wcsicmp(f.path.c_str(), paths[i].c_str())) it.checked = true;
         items.push_back(it);
     }
     ctxmenu::Item sep; sep.separator = true;
     items.push_back(sep);
-    std::wstring cl = KnownFolder(FOLDERID_SkyDrive);
-    if (!cl.empty() && GetFileAttributesW(cl.c_str()) != INVALID_FILE_ATTRIBUTES) { ctxmenu::Item c; c.label = L"OneDrive"; c.id = 40; c.checked = g_sideCloud; c.icon = 0xE753; items.push_back(c); }
+    if (!ICloudDriveFolder().empty()) { ctxmenu::Item c; c.label = L"iCloud"; c.id = 40; c.checked = g_sideCloud; c.icon = 0xE753; items.push_back(c); }
     { ctxmenu::Item c; c.label = Tr(L"Locais"); c.id = 41; c.checked = g_sideDrives; c.icon = 0xEDA2; items.push_back(c); }
     { ctxmenu::Item c; c.label = Tr(L"Etiquetas"); c.id = 42; c.checked = g_sideTags; c.icon = 0xE8EC; items.push_back(c); }
     items.push_back(sep);
@@ -7239,7 +7348,7 @@ static void FinderSettings() {
             for (int j = id; j < N && at == g_favs.size(); j++)
                 for (size_t k = 0; k < g_favs.size(); k++) if (!paths[j].empty() && !_wcsicmp(g_favs[k].path.c_str(), paths[j].c_str())) { at = k; break; }
             const KF& d = defs[id - 1];
-            g_favs.insert(g_favs.begin() + at, { d.label ? Tr(d.label) : nome(p), p, d.glyph });
+            g_favs.insert(g_favs.begin() + at, { *d.id==FOLDERID_Pictures ? TrPick(L"Imagens",L"Pictures") : d.label ? Tr(d.label) : nome(p), p, d.glyph });
         }
         SaveFavorites();
         BuildSidebar();

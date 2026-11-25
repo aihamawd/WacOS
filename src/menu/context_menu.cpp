@@ -156,7 +156,7 @@ static std::wstring VerbOf(ShellMenu& sm, UINT cmd) {
 struct MItem {
     std::wstring label, verb, shortcut;
     UINT cmd = 0;
-    bool sep = false, header = false, disabled = false, checked = false;
+    bool sep = false, header = false, disabled = false, checked = false, info = false;
     int special = 0;  // 1 = abrir o menu clássico do Windows
     std::vector<MItem> sub;
     wchar_t icon = 0;
@@ -430,6 +430,8 @@ void ctxmenu::PlainNext() { g_plainNext = true; }
 // altura de verdade; antes o Dock adivinhava a altura (22 pt por linha, separadores inclusive) e o menu ficava alto demais.
 static bool g_aboveNext, g_above;
 void ctxmenu::AboveNext() { g_aboveNext = true; }
+static bool g_centerNext, g_center;
+void ctxmenu::CenterNext() { g_centerNext = true; }
 static std::vector<ctxmenu::Item> g_extraNext;  // itens do app para o próximo Show (ExtraNext)
 void ctxmenu::ExtraNext(const std::vector<Item>& items) { g_extraNext = items; }
 void ctxmenu::SetGlass(const Glass& g) { g_glass = g; g_glassSet = true; }
@@ -554,7 +556,7 @@ static bool IsDarkMode() {
     return v == 0;
 }
 
-static bool Selectable(const MItem& m) { return !m.sep && !m.header && !m.disabled && m.dots.empty(); }
+static bool Selectable(const MItem& m) { return !m.sep && !m.header && !m.disabled && !m.info && m.dots.empty(); }
 
 // Medidas do menu do Tahoe (Liquid Glass), do guia macOS26-Theme-Reference (seção 31, NSPopupMenuWindow medido
 // no macOS 26): item de 24, separador de 11, 5 de folga em cima e embaixo, texto em x 14 sem ícones e em x 33
@@ -850,7 +852,7 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
     L.tf = MakeFormat(M::FONT * sc, DWRITE_FONT_WEIGHT_NORMAL);
     L.tfHdr = MakeFormat(M::HDR_FONT * sc, DWRITE_FONT_WEIGHT_SEMI_BOLD);
     if (Tahoe() && !g_plain)
-        for (auto& m : *items) if (!m.sep && !m.header && !m.icon && !m.img && !m.swatch && m.dots.empty() && (!Golden() || GoldenIcon(m.label))) m.icon = ctxmenu::AutoIcon(m.label);
+        for (auto& m : *items) if (!m.sep && !m.header && !m.info && !m.icon && !m.img && !m.swatch && m.dots.empty() && (!Golden() || GoldenIcon(m.label))) m.icon = ctxmenu::AutoIcon(m.label);
     bool hasCheck = false, hasSub = false, hasIcon = false;
     float maxW = 0, maxShort = 0;
     for (auto& m : *items) {
@@ -886,7 +888,10 @@ static void OpenLevel(Session& s, std::vector<MItem>* items, POINT anchor, const
         }
         // só o Dock no caminho (caberia na tela sem ele): o menu sobe/anda só o que falta, como no Mac, em vez de virar
         // para o outro lado do ponto (o menu do próprio Dock, aberto em cima do ícone, pularia a altura inteira)
-        if (x + w > wa.right) x = x + w <= mi.rcWork.right ? wa.right - w : anchor.x - w;
+        if (g_center) {
+            x = std::max<int>(wa.left, std::min<int>(anchor.x - w / 2, wa.right - w));
+            g_center = false;
+        } else if (x + w > wa.right) x = x + w <= mi.rcWork.right ? wa.right - w : anchor.x - w;
         if (top + h > wa.bottom) top = top + h <= mi.rcWork.bottom ? wa.bottom - h : anchor.y - h;
     } else {
         x = parentWin->right - (int)(3 * sc);
@@ -1170,7 +1175,7 @@ static void DrawLevel(Session& s, int li) {
             rt->DrawTextW(m.label.c_str(), (UINT32)m.label.size(), L.tfHdr, tr, hdr, D2D1_DRAW_TEXT_OPTIONS_CLIP);
             continue;
         }
-        bool hot = (int)i == L.hover || ((int)i == L.openChild && L.hover < 0);
+        bool hot = !m.info && ((int)i == L.hover || ((int)i == L.openChild && L.hover < 0));
         if (hot && !m.disabled && leo) {  // Leopard: degradê azul de ponta a ponta, com o fio claro em cima
             D2D1_GRADIENT_STOP st[2] = { { 0, D2D1::ColorF(0.39f, 0.56f, 0.96f, 1) }, { 1, D2D1::ColorF(0.13f, 0.35f, 0.88f, 1) } };
             ID2D1GradientStopCollection* gs = nullptr; ID2D1LinearGradientBrush* lb = nullptr;
@@ -1188,11 +1193,12 @@ static void DrawLevel(Session& s, int li) {
             rt->FillRoundedRectangle(rr, accent);
         }
         ID2D1SolidColorBrush* fg = m.disabled ? dim : (hot ? white : text);
+        if (m.info && !m.shortcut.empty()) tr.right = std::max(tr.left, W - L.textR - TextWidth(L.tf,m.shortcut) - 12*sc);
         rt->DrawTextW(m.label.c_str(), (UINT32)m.label.size(), L.tf, tr, fg, D2D1_DRAW_TEXT_OPTIONS_CLIP);
         if (!m.shortcut.empty()) {
             float sw = TextWidth(L.tf, m.shortcut);
             D2D1_RECT_F sr = D2D1::RectF(W - L.textR - sw, r.top, W - L.textR + 2 * sc, r.bottom);
-            rt->DrawTextW(m.shortcut.c_str(), (UINT32)m.shortcut.size(), L.tf, sr, (hot && !m.disabled) ? white : dim, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            rt->DrawTextW(m.shortcut.c_str(), (UINT32)m.shortcut.size(), L.tf, sr, m.info ? text : ((hot && !m.disabled) ? white : dim), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
         float cy = (r.top + r.bottom) / 2;
         if (m.icon && !m.checked && L.tfIcon) {  // ícone do Tahoe na coluna da esquerda
@@ -1410,6 +1416,7 @@ static MItem* RunMenu(HWND owner, std::vector<MItem>& items, POINT pt) {
     Session s; s.owner = owner; s.dark = IsDarkMode() && !Leopard();  // Leopard: menus sempre claros
     g_plain = g_plainNext; g_plainNext = false;
     g_above = g_aboveNext; g_aboveNext = false;
+    g_center = g_centerNext; g_centerNext = false;
     g_ses = &s;
     g_openTick = GetTickCount(); GetCursorPos(&g_openPt);
     OpenLevel(s, &items, pt, nullptr, 0);
@@ -1641,21 +1648,24 @@ HRESULT ctxmenu::InvokeVerb(HWND owner, const std::wstring& folder, const std::v
     return hr;
 }
 
-static std::vector<MItem> ToMItems(const std::vector<ctxmenu::Item>& in) {
+#include "../comum/mackeys-local.h"
+static std::vector<MItem> ToMItems(const std::vector<ctxmenu::Item>& in,int scope) {
     std::vector<MItem> out;
     for (auto& it : in) {
         if (it.separator) { out.push_back(Sep()); continue; }
         MItem m;
         m.label = it.label;
-        m.cmd = (UINT)it.id;
+        m.info = it.id == -1;
+        m.header = it.id == -2;
+        m.cmd = it.id < 0 ? 0 : (UINT)it.id;
         m.checked = it.checked;
-        m.disabled = it.disabled;
-        m.shortcut = it.shortcut;
+        m.disabled = it.disabled && !m.info;
+        m.shortcut = localkeys::Caption(it.shortcut,scope);
         m.icon = it.icon;
         m.swatch = it.swatch;
         if (it.img && it.imgPx.size() == (size_t)it.img * it.img * 4) { m.img = it.img; m.imgPx = it.imgPx; }
         m.dots = it.dots;
-        m.sub = ToMItems(it.sub);
+        m.sub = ToMItems(it.sub,scope);
         out.push_back(std::move(m));
     }
     return out;
@@ -1663,7 +1673,7 @@ static std::vector<MItem> ToMItems(const std::vector<ctxmenu::Item>& in) {
 
 int ctxmenu::ShowItems(HWND owner, POINT pt, const std::vector<Item>& items) {
     QueryPerformanceCounter(&g_tShow);
-    auto mitems = ToMItems(items);
+    auto mitems = ToMItems(items,localkeys::Scope(owner));
     MItem* r = RunMenu(owner, mitems, pt);
     return r ? (int)r->cmd : 0;
 }

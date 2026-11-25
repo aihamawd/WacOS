@@ -40,6 +40,8 @@ wchar_t AutoIcon(const std::wstring& label);
 void PlainNext();
 // O próximo menu abre para cima, centrado: o ponto passado é o meio da borda de baixo (o menu do Dock, como no Mac)
 void AboveNext();
+// Next root popup is horizontally centered on its anchor (screen-clamped).
+void CenterNext();
 
 bool IsOpen();
 // Fecha o menu aberto (ex.: a janela dona recebeu WM_ACTIVATEAPP com wParam = FALSE).

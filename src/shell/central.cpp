@@ -716,7 +716,20 @@ Pal Colors() {
 
 void Text(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const std::wstring& s, D2D1_RECT_F r, IDWriteTextFormat* tf, D2D1_COLOR_F c) {
     br->SetColor(c);
-    dc->DrawTextW(s.c_str(), (UINT32)s.size(), tf, r, br, D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    if(!tf||s.empty()||r.right<=r.left||r.bottom<=r.top)return;
+    IDWriteTextLayout* layout=nullptr;
+    if(ui::dw&&SUCCEEDED(ui::dw->CreateTextLayout(s.c_str(),(UINT32)s.size(),tf,r.right-r.left,r.bottom-r.top,&layout))){
+        if(s.find(L'\n')==std::wstring::npos&&tf->GetWordWrapping()==DWRITE_WORD_WRAPPING_NO_WRAP){
+            IDWriteTextLayout* measure=nullptr;
+            if(SUCCEEDED(ui::dw->CreateTextLayout(s.c_str(),(UINT32)s.size(),tf,4096.f,128.f,&measure))){
+                DWRITE_TEXT_METRICS m{};measure->GetMetrics(&m);measure->Release();
+                float size=tf->GetFontSize(),width=r.right-r.left;
+                if(m.widthIncludingTrailingWhitespace>width&&size>9.f)
+                    layout->SetFontSize(std::max(9.f,size*width/m.widthIncludingTrailingWhitespace),{0,(UINT32)s.size()});
+            }
+        }
+        dc->DrawTextLayout({r.left,r.top},layout,br,D2D1_DRAW_TEXT_OPTIONS_CLIP);layout->Release();
+    }else dc->DrawTextW(s.c_str(),(UINT32)s.size(),tf,r,br,D2D1_DRAW_TEXT_OPTIONS_CLIP);
 }
 
 void Sym(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, const wchar_t* name, wchar_t fallback, D2D1_RECT_F r, D2D1_COLOR_F c) {
@@ -985,7 +998,7 @@ void Paint() {
     D2D1_RECT_F conn = D2D1::RectF(M, M, M + COL, M + CONN_H);
     Tile(dc, br, p, conn);
     struct Row { HitId btn, text; const wchar_t* sym; wchar_t fb; std::wstring title, sub; bool on; };
-    std::wstring wifiSub = st.radio[0] == 0 ? Tr(L"Desligado") : !st.ssid.empty() ? st.ssid : st.radio[0] == -1 ? Tr(L"Ethernet") : Tr(L"Não conectado");
+    std::wstring wifiSub = st.radio[0] == 0 ? Tr(L"Desligado") : !st.ssid.empty() ? st.ssid : st.radio[0] == -1 ? TrPick(L"Indisponível",L"Unavailable") : Tr(L"Não conectado");
     std::wstring btSub = st.radio[1] == 1 ? Tr(L"Ativado") : st.radio[1] == 0 ? Tr(L"Desativado") : st.radio[1] == -1 ? Tr(L"Indisponível") : L"…";
     std::wstring airSub = st.airdrop == 2 ? Tr(L"Todos") : st.airdrop == 1 ? Tr(L"Só Meus Dispositivos") : Tr(L"Desativado");
     Row rows[3] = {
@@ -1012,8 +1025,8 @@ void Paint() {
     // Organizador Visual (Stage Manager) e Espelhamento de Tela, como no Mac
     float sw = (COL - G) / 2;
     D2D1_RECT_F mc = D2D1::RectF(x2, M + 75, x2 + sw, M + CONN_H), mir = D2D1::RectF(x2 + sw + G, M + 75, PW - M, M + CONN_H);
-    for (auto [r, sym, fb, label, id] : { std::tuple{ mc, L"squares.leading.rectangle", (wchar_t)0xE7C4, Tr(L"Organizador\nVisual"), H_STAGE },
-                                         std::tuple{ mir, L"rectangle.on.rectangle", (wchar_t)0xEC15, Tr(L"Espelhar\nTela"), H_MIRROR } }) {
+    for (auto [r, sym, fb, label, id] : { std::tuple{ mc, L"squares.leading.rectangle", (wchar_t)0xE7C4, TrPick(L"Organizador\nVisual",L"Stage\nManager"), H_STAGE },
+                                         std::tuple{ mir, L"rectangle.on.rectangle", (wchar_t)0xEC15, TrPick(L"Espelhar\nTela",L"Screen\nMirroring"), H_MIRROR } }) {
         Tile(dc, br, p, r);
         if (id == H_STAGE && palco::On()) {  // ligado: o módulo fica aceso (azul), como os outros ligados
             if (leo) LeoGel(dc, br, r, 5, true);
@@ -1297,7 +1310,7 @@ void PaintTahoe() {
         Sym(dc, br, sym, fb, D2D1::RectF(c.x - s, c.y - s, c.x + s, c.y + s), on ? onColor : white);
     };
     // os controles pela grade (cc_layout); editando, cada um ganha o "−" e aparecem lugares vazios embaixo
-    std::wstring wifiSub = st.radio[0] == 0 ? Tr(L"Desligado") : !st.ssid.empty() ? st.ssid : st.radio[0] == -1 ? Tr(L"Ethernet") : Tr(L"Não conectado");
+    std::wstring wifiSub = st.radio[0] == 0 ? Tr(L"Desligado") : !st.ssid.empty() ? st.ssid : st.radio[0] == -1 ? TrPick(L"Indisponível",L"Unavailable") : Tr(L"Não conectado");
     std::wstring btSub = st.radio[1] == 1 ? Tr(L"Ativado") : st.radio[1] == 0 ? Tr(L"Desativado") : st.radio[1] == -1 ? Tr(L"Indisponível") : L"…";
     std::wstring airSub = st.airdrop == 2 ? Tr(L"Todos") : st.airdrop == 1 ? Tr(L"Só Contatos") : Tr(L"Desativado");
     auto capsule = [&](D2D1_RECT_F r, HitId btn, HitId text, const wchar_t* sym, wchar_t fb, const std::wstring& title, const std::wstring& sub, bool on, D2D1_COLOR_F onColor) {
@@ -1603,7 +1616,7 @@ void PaintTahoe() {
     float cx, cy; Pivot(wpx, cx, cy);
     ui::GpuScale(g_s, mo.scale, cx, cy);
     if (g_glass) {
-        if (real) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, pieces, tint, 4.5f);  // vidro "clear": o fundo quase nítido (a lente fica na borda)
+        if (real) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, pieces, tint, liquid::Golden()?4.f:4.5f);  // vidro "clear": o fundo quase nítido (a lente fica na borda)
         else backdrop::Set(g_back, 0, 0, 0, Colors().tint);
         backdrop::Fade(g_back, t, mo.scale, cx, cy);
     }

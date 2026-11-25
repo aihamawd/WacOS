@@ -152,6 +152,7 @@ struct Info {
     DWORD colorFreezeUntil = 0;  // sem ler a cor da barra até aqui (logo depois do ampliar o topo do app ainda está preto)
     int barH = 0;                // altura da barra do app (px), medida na tela
     COLORREF leftColor = RGB(32, 32, 32), rightColor = RGB(32, 32, 32);
+    int rgnRadius=0;
     SIZE rgn{};                  // tamanho com que o recorte arredondado foi feito (0 = sem recorte)
     int il = -1, it = 0, ir = 0, ib = 0;  // bordas invisíveis medidas antes do recorte (depois o DWM não informa mais)
     HWND preview = nullptr;      // prévia do encaixe enquanto arrasta (atrás da janela)
@@ -1277,12 +1278,12 @@ void ApplyRegion(Info* in) {
     }
     RECT wr; GetWindowRect(h, &wr);
     SIZE sz{ wr.right - wr.left, wr.bottom - wr.top };
-    if (sz.cx == in->rgn.cx && sz.cy == in->rgn.cy) return;
+    if (sz.cx == in->rgn.cx && sz.cy == in->rgn.cy && in->rgnRadius==CornerRadius(h)) return;
     int l, t, rr, b;
     Insets(in, l, t, rr, b);
     // por dentro do arco: a borda suavizada (UpdateCorners) cobre o que sobra
     int R = CornerRadius(h);
-    in->rgn = sz;
+    in->rgn = sz; in->rgnRadius=R;
     // a borda fina e o arredondamento do Windows seriam desenhados no tamanho antigo, em volta do recorte
     COLORREF none = 0xFFFFFFFE;  // DWMWA_COLOR_NONE
     DwmSetWindowAttribute(h, 34 /*DWMWA_BORDER_COLOR*/, &none, sizeof(none));
@@ -2722,6 +2723,10 @@ void Attach(HWND h, int mode) {
     PatchWobble();
     if (!SetWindowSubclass(h, OwnerProc, SUBCLASS_ID, (DWORD_PTR)in)) { RemovePropW(h, PROP); RemovePropW(h, L"MacJanelaInfo"); delete in; return; }
     in->custom = mode == 2;
+    if(in->custom){
+        in->recusa=true; // do not paint until the measured client layout proves safe
+        SetPropW(h,L"MacJanelaRecusa",(HANDLE)(INT_PTR)1);
+    }
     if (!in->custom) {
         // sem título, ícone e botões do Windows (a barra fica só com a cor)
         WTA_OPTIONS o{ WTNCA_NODRAWCAPTION | WTNCA_NODRAWICON | WTNCA_NOSYSMENU, WTNCA_NODRAWCAPTION | WTNCA_NODRAWICON | WTNCA_NOSYSMENU };

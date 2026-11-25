@@ -1,4 +1,5 @@
-﻿// Apps do Dock: os fixos (dock.txt; na primeira vez, os fixados na barra de tarefas do Windows),
+﻿#include "../comum/iconnorm.h"
+// Apps do Dock: os fixos (dock.txt; na primeira vez, os fixados na barra de tarefas do Windows),
 // os abertos (janelas que apareceriam na barra de tarefas) e os recentes. Abrir, ativar, ocultar,
 // encerrar, fixar, abrir ao iniciar sessão.
 #include "shell.h"
@@ -777,12 +778,18 @@ std::wstring apps::PackIconByName(const std::wstring& name, const std::wstring& 
 void apps::EnsureIcon(App& a, int px) {
     if (!a.icon.empty() && (a.mac || (int)std::max(a.iw, a.ih) >= px)) return;
     std::wstring png = PackIconFor(a);
-    if (!png.empty() && ui::LoadPng(png, a.iw, a.ih, a.icon)) { a.mac = true; return; }
+    if (!png.empty() && ui::LoadPng(png, a.iw, a.ih, a.icon)) {
+        if(!liquid::Leopard()&&!a.finder)iconnorm::Normalize(a.iw,a.ih,a.icon,liquid::Golden()||ui::Dark(),true);
+        a.mac = true; return;
+    }
     if (a.finder) return;
     if (!ui::ShellImage(a.launch, px, a.iw, a.ih, a.icon, true))
         if (!ui::ShellImage(a.launch, px, a.iw, a.ih, a.icon, false) && !a.exe.empty())
             ui::ShellImage(a.exe, px, a.iw, a.ih, a.icon, true);
-    if (!a.icon.empty()) ui::TrimToSquare(a.iw, a.ih, a.icon);
+    if (!a.icon.empty()) {
+        if(!liquid::Leopard()&&iconnorm::Normalize(a.iw,a.ih,a.icon,liquid::Golden()||ui::Dark()))a.mac=true;
+        else ui::TrimToSquare(a.iw,a.ih,a.icon);
+    }
 }
 
 // Apps feitos com Chromium/Electron param de desenhar quando estão cobertos por outra janela, e a
@@ -1180,38 +1187,13 @@ void apps::Hide(App& a) {
     if (cx.next) SetForegroundWindow(cx.next);
     Log(L"dock: %ls oculto (%zu janelas)", a.name.c_str(), hs.size());
 }
-// Encerrar = como o "Finalizar tarefa": mata os processos das janelas do app na hora, sem perguntar.
-// Apps da loja vivem dentro do ApplicationFrameHost (que hospeda todos eles): ali vale o processo da
-// janela de dentro, nunca o hospedeiro. O Arquivos (o Finder) e o Explorer só recebem o pedido de fechar.
+// Normal Quit requests graceful close for every top-level application window.
+ // Force Quit is provided separately by the Force Quit application.
 void apps::Quit(App& a) {
-    std::vector<DWORD> pids;
-    for (auto& w : a.wins) {
-        DWORD pid = 0;
-        GetWindowThreadProcessId(w.hwnd, &pid);
-        std::wstring exe = ExeOfWindow(w.hwnd);
-        exe = exe.substr(exe.find_last_of(L'\\') + 1);  // só o nome do arquivo, minúsculo e sem ".exe"
-        for (auto& c : exe) c = towlower(c);
-        if (exe.size() > 4 && exe.compare(exe.size() - 4, 4, L".exe") == 0) exe.resize(exe.size() - 4);
-        if (exe == L"applicationframehost") {
-            struct Find { DWORD host, inner; } f{ pid, 0 };
-            EnumChildWindows(w.hwnd, [](HWND c, LPARAM l) -> BOOL {
-                auto* f = (Find*)l;
-                DWORD p = 0; GetWindowThreadProcessId(c, &p);
-                if (p && p != f->host) { f->inner = p; return FALSE; }
-                return TRUE;
-            }, (LPARAM)&f);
-            pid = f.inner;
-        }
-        if (a.finder || !pid || pid == GetCurrentProcessId() || exe == L"explorer" || exe == L"shell" || exe == L"sequoiashell") { PostMessageW(w.hwnd, WM_CLOSE, 0, 0); continue; }
-        if (std::find(pids.begin(), pids.end(), pid) == pids.end()) pids.push_back(pid);
-    }
-    for (DWORD pid : pids) {
-        if (HANDLE h = OpenProcess(PROCESS_TERMINATE, FALSE, pid)) {
-            TerminateProcess(h, 1);
-            CloseHandle(h);
-        }
-    }
-    Log(L"dock: encerrado %ls (%zu processos)", a.name.c_str(), pids.size());
+    std::vector<HWND> hs;
+    for(const auto& w:a.wins)if(IsWindow(w.hwnd)&&std::find(hs.begin(),hs.end(),w.hwnd)==hs.end())hs.push_back(w.hwnd);
+    for(HWND h:hs)PostMessageW(h,WM_CLOSE,0,0);
+    Log(L"dock: graceful quit requested for %ls (%zu windows)",a.name.c_str(),hs.size());
 }
 
 void apps::SetPinned(App& a, bool pin) {

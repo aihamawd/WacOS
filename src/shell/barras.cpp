@@ -39,6 +39,8 @@
 #include <vector>
 #include <uiautomation.h>
 #include "../comum/semaforo.h"
+#include "../comum/jogos.h"
+#include <shellapi.h>
 
 namespace {
 
@@ -56,10 +58,12 @@ struct Info {
     DWORD corAte = 0;               // modo deslocado: a cor está mudando (o programa escurecendo a janela): relê a cada quadro até aqui
     COLORREF bordaE = CLR_INVALID, bordaD = CLR_INVALID;  // cor do fio de 1 px da borda da janela (lida logo abaixo da faixa)
     bool ativa = false, hover = false, zoom = false, sujo = true;
+    bool leo=false;
     bool propria = false;           // o programa desenha a barra dele
     int acima = 0;                  // barra própria: 1 = modo deslocado (Chromium), 0 = remendos
     float direita = PATCH_R;        // modo deslocado: largura (pt) dos botões de janela do programa, que ficam de fora da cópia
     float corte = 8;                // modo deslocado: quanto da esquerda da linha fica de fora da cópia (pt)
+    DWORD oldCorner=0, appliedCorner=0; bool cornerOwned=false;
     int raio = 0;                   // a DLL recortou os cantos desta janela (propriedade "MacJanelaCanto"): raio em px
     HWND cantos = nullptr;          // os dois cantos de baixo suavizados (janela em camadas, não recebe cliques)
     RECT vis{};                     // a parte visível da janela (tela)
@@ -130,6 +134,9 @@ bool Propria(HWND h, const wchar_t* cls, LONG st, RECT& bar, bool& zoom, int& ac
     bool known = false;
     for (auto c : CLASSES) if (!wcscmp(cls, c)) known = true;
     if (!known || shell::Setting(L"barras_proprias", L"1") == L"0") return false;
+    if(shell::Setting(L"barras_proprias_experimental",L"0")!=L"1")return false;
+    // Shifted thumbnail + synthetic mouse input cannot preserve browser editing.
+    if(!wcscmp(cls,L"MozillaWindowClass"))return false;
     // Só para ganhar a faixa: quem já tem continua com ela. O Bloco de Notas tira o "ampliar" da janela enquanto mostra
     // um diálogo dele (ex.: "arquivo não encontrado"): a faixa sumia e apareciam os botões do Windows até o diálogo fechar.
     if (!g_j.count(h) && (!(st & WS_THICKFRAME) || !(st & WS_MAXIMIZEBOX) || !(st & WS_MINIMIZEBOX))) return false;
@@ -138,7 +145,7 @@ bool Propria(HWND h, const wchar_t* cls, LONG st, RECT& bar, bool& zoom, int& ac
     RECT f{};
     if (FAILED(DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, &f, sizeof(f)))) GetWindowRect(h, &f);
     zoom = IsZoomed(h) != FALSE;
-    if (!zoom && GetPropW(h, L"MacJanelaCanto")) {  // recortada pela DLL: a parte visível é a janela menos a borda invisível
+    if (!zoom && (INT_PTR)GetPropW(h,L"MacJanelaCanto")>2 && !GetPropW(h,L"MacJanelaLeve")) {  // recortada pela DLL: a parte visível é a janela menos a borda invisível
         RECT wr{}; GetWindowRect(h, &wr);
         int bi = std::max(0, (int)(INT_PTR)GetPropW(h, L"MacJanelaCantoB") - 1);
         f = { wr.left + bi, wr.top, wr.right - bi, wr.bottom - bi };
@@ -159,6 +166,97 @@ bool Propria(HWND h, const wchar_t* cls, LONG st, RECT& bar, bool& zoom, int& ac
     return true;
 }
 
+// External fallback must not defeat injection exclusions or touch protected apps.
+const wchar_t* EXCLUDED_EXE[] = {
+    L"explorer.exe", L"dwm.exe", L"shell.exe", L"arquivos.exe", L"ajustes.exe", L"monitoratividade.exe", L"terminal.exe", L"calculadora.exe", L"notas.exe",
+    L"wacosshell.exe", L"wacosfinder.exe", L"wacossettings.exe", L"wacosactivitymonitor.exe", L"wacosterminal.exe", L"wacoscalculator.exe", L"wacosnotes.exe", L"wacoswindow32host.exe", L"searchhost.exe", L"startmenuexperiencehost.exe",
+    L"snippingtool.exe", L"screenclippinghost.exe",  // Ferramenta de Captura (gravação de tela parava: prints do Discord, 19/11/2026)
+    L"applicationframehost.exe", L"textinputhost.exe", L"lockapp.exe", L"shellexperiencehost.exe", L"systemsettings.exe", L"taskmgr.exe",
+    L"steam.exe", L"steamwebhelper.exe", L"gameoverlayui.exe", L"battle.net.exe", L"agent.exe", L"eadesktop.exe", L"eabackgroundservice.exe",
+    L"origin.exe", L"epicgameslauncher.exe", L"epicwebhelper.exe", L"riotclientservices.exe", L"riotclientux.exe", L"riotclientuxrender.exe",
+    L"leagueclient.exe", L"leagueclientux.exe", L"leagueclientuxrender.exe", L"league of legends.exe", L"valorant.exe", L"valorant-win64-shipping.exe",
+    L"vgc.exe", L"vgtray.exe", L"faceit.exe", L"faceitclient.exe", L"easyanticheat.exe", L"easyanticheat_eos.exe", L"beservice.exe",
+    L"beservice_x64.exe", L"ubisoftconnect.exe", L"upc.exe", L"galaxyclient.exe", L"xboxpcapp.exe", L"gamebar.exe", L"robloxplayerbeta.exe",
+    L"minecraftlauncher.exe", L"javaw.exe", L"rockstarlauncher.exe", L"socialclubhelper.exe", L"overwolf.exe", L"medal.exe",
+};
+
+struct OverlayPermission { ULONGLONG born=0; bool allowed=false; DWORD at=0; };
+std::map<DWORD,OverlayPermission> permission;
+std::vector<std::wstring> excludedUser;
+DWORD exclusionAt=0;
+void ReloadOverlayExclusions(){
+    DWORD now=GetTickCount();
+    if(exclusionAt && now-exclusionAt<5000)return;
+    exclusionAt=now|1;excludedUser.clear();permission.clear();
+    wchar_t base[MAX_PATH]={};
+    if(!GetEnvironmentVariableW(L"APPDATA",base,MAX_PATH))return;
+    for(auto file:{L"janelas-excluidas.txt",L"jogos.txt"}){
+        FILE* fp=nullptr;
+        auto path=std::wstring(base)+L"\\Shell\\"+file;
+        if(_wfopen_s(&fp,path.c_str(),L"r, ccs=UTF-8")||!fp)continue;
+        wchar_t line[512];
+        while(fgetws(line,512,fp)){
+            std::wstring t=line;
+            while(!t.empty()&&iswspace(t.back()))t.pop_back();
+            auto p=t.find_first_not_of(L" \t");
+            if(p!=std::wstring::npos&&t[p]!=L'#')excludedUser.push_back(jogos::Minusculo(t.substr(p)));
+        }
+        fclose(fp);
+    }
+}
+bool OverlayAllowed(HWND h,const wchar_t* cls){
+    if(jogos::ClasseDeJogo(cls)||jogo::Ativo())return false;
+    QUERY_USER_NOTIFICATION_STATE state{};
+    if(SUCCEEDED(SHQueryUserNotificationState(&state)) &&
+       (state==QUNS_RUNNING_D3D_FULL_SCREEN||state==QUNS_PRESENTATION_MODE))return false;
+    DWORD pid=0;GetWindowThreadProcessId(h,&pid);
+    if(!pid||pid==GetCurrentProcessId())return false;
+    ReloadOverlayExclusions();
+    HANDLE ph=OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,FALSE,pid);
+    if(!ph)return false;
+    FILETIME c{},e{},k{},u{};
+    if(!GetProcessTimes(ph,&c,&e,&k,&u)){CloseHandle(ph);return false;}
+    ULONGLONG born=((ULONGLONG)c.dwHighDateTime<<32)|c.dwLowDateTime;
+    auto it=permission.find(pid);
+    if(it!=permission.end()&&it->second.born==born){CloseHandle(ph);return it->second.allowed;}
+    wchar_t path[MAX_PATH]={};DWORD len=MAX_PATH;
+    bool ok=QueryFullProcessImageNameW(ph,0,path,&len)!=FALSE;
+    HANDLE token=nullptr;
+    if(OpenProcessToken(ph,TOKEN_QUERY,&token)){
+        TOKEN_ELEVATION elevation{};DWORD got=0,container=0;
+        if(!GetTokenInformation(token,TokenElevation,&elevation,sizeof(elevation),&got)||elevation.TokenIsElevated)ok=false;
+        if(!GetTokenInformation(token,TokenIsAppContainer,&container,sizeof(container),&got)||container)ok=false;
+        CloseHandle(token);
+    }else ok=false;
+    CloseHandle(ph);
+    auto full=jogos::Minusculo(path),exe=full.substr(full.find_last_of(L'\\')+1);
+    for(auto name:EXCLUDED_EXE)if(exe==name)ok=false;
+    if(exe.find(L"wacos")!=std::wstring::npos)ok=false;
+    // ApplicationFrameHost and other protected/system windows retain their native controls.
+    for(auto& x:excludedUser)if(full.find(x)!=std::wstring::npos)ok=false;
+    if(ok&&jogos::ProgramaDeJogo(path))ok=false;
+    permission[pid]={born,ok,GetTickCount()};
+    return ok;
+}
+void RestoreOverlayCorner(Info& in){
+    if(!in.cornerOwned)return;
+    DWORD now=0;
+    if(IsWindow(in.alvo)&&!GetPropW(in.alvo,L"MacJanela")&&!GetPropW(in.alvo,L"MacJanelaLeve")&&
+       SUCCEEDED(DwmGetWindowAttribute(in.alvo,33,&now,sizeof(now)))&&now==in.appliedCorner)
+        DwmSetWindowAttribute(in.alvo,33,&in.oldCorner,sizeof(in.oldCorner));
+    in.cornerOwned=false;
+}
+void SyncOverlayCorner(Info& in){
+    if(GetPropW(in.alvo,L"MacJanelaLeve")||GetPropW(in.alvo,L"MacJanela")){RestoreOverlayCorner(in);return;}
+    DWORD desired=liquid::Leopard()?3:2; // DWM supports small or regular radius only; maximized windows stay square.
+    DWORD now=0;
+    if(FAILED(DwmGetWindowAttribute(in.alvo,33,&now,sizeof(now))))return;
+    if(in.cornerOwned&&now!=in.appliedCorner)in.cornerOwned=false;
+    if(!in.cornerOwned){in.oldCorner=now;}
+    if(now!=desired&&SUCCEEDED(DwmSetWindowAttribute(in.alvo,33,&desired,sizeof(desired)))){
+        in.appliedCorner=desired;in.cornerOwned=true;
+    }
+}
 bool Elegivel(HWND h, RECT& bar, bool& zoom, bool& propria, int& acima) {
     propria = false; acima = 0;
     if (!IsWindow(h) || GetAncestor(h, GA_ROOT) != h || !IsWindowVisible(h) || IsIconic(h)) return false;
@@ -176,6 +274,9 @@ bool Elegivel(HWND h, RECT& bar, bool& zoom, bool& propria, int& acima) {
                     L"NotasJanela", L"NotasRapidaJanela", L"MacJanelaBarra", L"Shell_TrayWnd", L"Windows.UI.Core.CoreWindow" })
         if (!wcscmp(cls, c)) return false;
     if (GetPropW(h, L"MacJanela")) return false;  // já tratada pela DLL (fora do nativo)
+    if (!OverlayAllowed(h,cls) || !wcscmp(cls,L"MozillaWindowClass")) return false;
+    // Respect the in-process renderer's explicit content-overlap refusal.
+    if (GetPropW(h,L"MacJanelaRecusa")) return false;
     auto tentaPropria = [&] { propria = Propria(h, cls, st, bar, zoom, acima); return propria; };
     if (!wcscmp(cls, L"ApplicationFrameWindow")) return tentaPropria();  // apps da Loja: a moldura desenha a barra
     if ((st & WS_CAPTION) != WS_CAPTION) return tentaPropria();
@@ -234,7 +335,7 @@ void Pintar(Info& in) {
         float W = w / sc, HT = h / sc;
         float H = HT;
         // fundo: a cor da barra, com os cantos de cima arredondados como os da janela (ampliada: retos)
-        float R = in.zoom ? 0.f : in.raio ? in.raio / sc : 8.f;
+        float R = in.zoom ? 0.f : in.raio ? in.raio / sc : liquid::Leopard()?4.f:8.f;
         ID2D1PathGeometry* g = nullptr;
         g_d2d->CreatePathGeometry(&g);
         ID2D1GeometrySink* sk = nullptr;
@@ -795,6 +896,7 @@ void Atualizar(HWND alvo) {
     bool ok = Elegivel(alvo, bar, zoom, propria, acima);
     if (!ok) {
         if (it != g_j.end()) {
+            RestoreOverlayCorner(it->second);
             if (!IsWindow(alvo)) { if (it->second.mini) DwmUnregisterThumbnail(it->second.mini); if (it->second.cantos) DestroyWindow(it->second.cantos); DestroyWindow(it->second.faixa); g_j.erase(it); }
             else if (IsWindowVisible(it->second.faixa)) { ShowWindow(it->second.faixa, SW_HIDE); Miniatura(it->second); Cantos(it->second); }
         }
@@ -822,9 +924,13 @@ void Atualizar(HWND alvo) {
             if (b && (!_wcsicmp(b + 1, L"Discord.exe") || !_wcsicmp(b + 1, L"DiscordPTB.exe") || !_wcsicmp(b + 1, L"DiscordCanary.exe"))) in.direita = 114;
             if (b && !_wcsicmp(b + 1, L"chrome.exe") && shell::Setting(L"barras_chrome_seta", L"direita") != L"esquerda") { in.corte = 36; in.chrome = true; in.linhaEm = (GetTickCount() + 700) | 1; }  // o botão ocupa de 8 a 36 pt; a aba (com a curva dela) começa em 36
         }
+        if(GetWindow(in.faixa,GW_OWNER)!=alvo){DestroyWindow(in.faixa);return;}
+        Log(L"barras: external fallback %ls",propria?L"custom title bar":L"standard title bar");
         it = g_j.emplace(alvo, std::move(in)).first;
     }
     Info& in = it->second;
+    SyncOverlayCorner(in);
+    if(in.leo!=liquid::Leopard()){in.leo=liquid::Leopard();in.sujo=true;}
     wchar_t t[256] = {}; InternalGetWindowText(alvo, t, 256);
     LONG st = GetWindowLongW(alvo, GWL_STYLE);
     bool ativa = Ativa(alvo);
@@ -838,7 +944,8 @@ void Atualizar(HWND alvo) {
     bool tamanho = bar.right - bar.left != in.pintado.cx || bar.bottom - bar.top != in.pintado.cy;
     in.r = bar;
     {   // recorte da DLL: raio e a parte visível da janela (área do programa), para os cantos de baixo
-        int raio = in.zoom ? 0 : (int)(INT_PTR)GetPropW(alvo, L"MacJanelaCanto");
+        int raio = in.zoom || GetPropW(alvo,L"MacJanelaLeve") ? 0 : (int)(INT_PTR)GetPropW(alvo,L"MacJanelaCanto");
+        if(raio<=2)raio=0;  // light-mode property values 1/2 are color flags, not pixel radii
         if (raio != in.raio) { in.raio = raio; in.sujo = true; }
         RECT wr{}; GetWindowRect(alvo, &wr);
         int bi = std::max(0, (int)(INT_PTR)GetPropW(alvo, L"MacJanelaCantoB") - 1);  // borda invisível (a DLL mediu)
@@ -1264,7 +1371,7 @@ void Thread() {
     }
     KillTimer(nullptr, rapido); KillTimer(nullptr, lento); KillTimer(nullptr, fino);
     for (auto& e : g_ev) if (e) { UnhookWinEvent(e); e = nullptr; }
-    for (auto& [h, in] : g_j) { if (in.cantos) DestroyWindow(in.cantos); DestroyWindow(in.faixa); }
+    for (auto& [h, in] : g_j) { RestoreOverlayCorner(in); if (in.cantos) DestroyWindow(in.cantos); DestroyWindow(in.faixa); }
     g_j.clear();
     CoUninitialize();
     g_rodando = false;
@@ -1273,7 +1380,7 @@ void Thread() {
 }  // namespace
 
 void barras::Start() {
-    if (!shell::nativo || g_rodando) return;
+    if (g_rodando) return;
     if (shell::Setting(L"janelas_mac", L"1") == L"0" || GetFileAttributesW(L"C:\\Users\\Public\\MacTitulo-desligado.txt") != INVALID_FILE_ATTRIBUTES) {
         Log(L"barras: desligada (janelas_mac=0 ou MacTitulo-desligado.txt)");
         return;

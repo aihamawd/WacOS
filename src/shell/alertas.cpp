@@ -362,8 +362,11 @@ void Paint() {
         for (auto* f : { tb, ti, tbtn }) if (f) f->Release();
         br->Release();
         ui::GpuEnd(g_s);
+        // Change only the trash confirmation material; preserve every layout and other alerts.
+        bool trash=g.iconOf.empty() && !g.single && !g.idThird &&
+            (g.yes==Tr(L"Apagar") || g.yes==Tr(L"Mover para a Lixeira") || g.yes==Tr(L"Esvaziar Lixeira"));
         if (g_glass) backdrop::SetPieces(g_back, (float)wpx, (float)hpx, { { D2D1::RectF(0, 0, (float)wpx, (float)hpx), R * sc } },
-                                         dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, 0.82f) : D2D1::ColorF(0.96f, 0.95f, 0.94f, 0.80f), 30.f);
+                                         dark ? D2D1::ColorF(0.16f, 0.16f, 0.17f, trash?0.58f:0.82f) : D2D1::ColorF(0.96f, 0.95f, 0.94f, trash?0.58f:0.80f), trash?8.f:30.f);
         anim::Panel mo = anim::PanelIn(anim::Now() - g_openAt);
         ui::GpuMotion(g_s, mo.scale, wpx / 2.f, hpx / 2.f, mo.fade);
         if (g_glass) backdrop::Fade(g_back, mo.fade, mo.scale, wpx / 2.f, hpx / 2.f);

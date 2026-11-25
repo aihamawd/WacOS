@@ -14,6 +14,7 @@
 // - tinta: "Nítido" quase sem tinta (o fundo aparece), "Tingido" mais opaco, como no 26.1.
 // Tudo isso só existe quando ligado: com o Liquid Glass desligado a árvore é a do Sequoia.
 #include "shell.h"
+#include "../comum/graphics-recovery-local.h"
 #include "../menu/context_menu.h"
 #include "../comum/vidro.h"
 #include <dwmapi.h>
@@ -302,6 +303,9 @@ namespace rg { void Use(Entry& e, bool want); void Redraw(Entry& e); void SetAct
 // Sem o vidro real (modo jogo, VM, captura recusada) e com várias peças, o fosco era um só, do tamanho da janela: o
 // Spotlight do Golden Gate virava um retângulo grande em volta da barra e do painel, que deviam flutuar separados
 // (22/11/2026). Aqui cada peça ganha o seu fosco e a sua tinta, recortados nos cantos dela. ativo = false: esconde.
+// Clear material: tint is independent of the lens. Preserve stronger text-panel floors.
+float PieceTintFloor(float frost) { return g_style.golden && frost <= 4.f ? .30f : .70f; }
+float OpticalBlur(float frost) { return std::max((g_style.golden ? 3.2f : 2.f) + 11.f*g_style.tintK, frost); }
 void PecasSemReal(Entry& e, bool ativo) {
     if (!ativo) {
         for (auto& v : e.pecasFosco) v.IsVisible(false);
@@ -315,6 +319,7 @@ void PecasSemReal(Entry& e, bool ativo) {
         e.pecasFosco.push_back(v);
     }
     D2D1_COLOR_F pt = backdrop::AdjustTint(e.pieceTint);
+    if(e.pieceFrost>0)pt.a=std::max(pt.a,e.pieceTint.a*PieceTintFloor(e.pieceFrost));
     for (size_t i = 0; i < e.pecasFosco.size(); i++) {
         auto& v = e.pecasFosco[i];
         size_t k = i / 2;
@@ -388,7 +393,7 @@ void Apply(Entry& e) {
     // no resto (Dock ampliando, painel crescendo) só as geometrias acompanham o tamanho
     bool clear = !st.tinted;
     wchar_t key[160];
-    swprintf_s(key, L"%d%d%d%.2f%.2f%.2f", (int)dark, (int)clear, (int)st.real, k, std::round(band * 2) / 2, px);
+    swprintf_s(key, L"%d%d%d%.2f%.2f%.2f", (int)dark, (int)clear, (int)e.real, k, std::round(band * 2) / 2, px);
     if (e.rimKey != key) {
         e.rimKey = key;
         // Tahoe (capturas da Apple): sem reflexo branco no alto; a borda é só um fio de luz fino e fraco
@@ -410,13 +415,13 @@ void Apply(Entry& e) {
         };
         // borda escura bem fina por fora
         // vidro real: a borda da Apple é só luz (sem contorno escuro); no fosco, o contorno ajuda a separar
-        add(0.5f * px, 1 * px, g_comp.CreateColorBrush(Col(0, 0, 0, st.real ? (dark ? 0.18f : 0.03f) : (dark ? 0.38f : 0.10f))));
+        add(0.5f * px, 1 * px, g_comp.CreateColorBrush(Col(0, 0, 0, e.real ? (dark ? 0.18f : 0.03f) : (dark ? 0.38f : 0.10f))));
         // fio de luz: um pouco mais claro em cima e embaixo, quase some dos lados (borda do Dock do Tahoe)
         auto spec = g_comp.CreateLinearGradientBrush();
         spec.StartPoint({ 0, 0 });
         spec.EndPoint({ 0, 1 });
         float hi = dark ? 0.24f : 0.42f, lo = dark ? 0.06f : 0.12f;
-        if (st.real) { hi *= 0.3f; lo *= 0.3f; }  // o vidro real já desenha o brilho especular (SpecFor)
+        if (e.real) { hi *= 0.3f; lo *= 0.3f; }  // o vidro real já desenha o brilho especular (SpecFor)
         AddStop(spec, 0.00f, Col(1, 1, 1, hi));
         AddStop(spec, 0.35f, Col(1, 1, 1, lo));
         AddStop(spec, 0.65f, Col(1, 1, 1, lo));
@@ -563,12 +568,8 @@ LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     if (m == WM_TIMER && w == T_RG && g_busy) return 0;
     if (m == WM_TIMER && w == T_RG) {  // rede de segurança: janelas que se moveram sem aviso; janelas novas do Shell
-        if (semCaptura && active) {
-            Log(L"vidro real: nenhuma janela pôde ser capturada (fundo preto); voltando ao vidro fosco até o Shell reiniciar");
-            g_style.real = false;
-            SetActive(false);
-            return 0;
-        }
+        // Keep the capture worker alive during temporary failures. Each failed HWND
+        // already has a 5-second retry cooldown; show frosted glass while probing.
         static int tick = 0;
         if (tick++ % 8 == 0) ApplyAffinity();  // ~2 s (as janelas novas do Shell são raras)
         if (tick % 40 == 0) {  // a cada 10 s: o que o vidro fez (diagnóstico de CPU)
@@ -742,7 +743,12 @@ std::shared_ptr<WinCap> StartCap(HWND h) {
         });
         c->session.StartCapture();
         return c;
+    } catch (winrt::hresult_error const& e) {
+        wchar_t cl[64]={}; GetClassNameW(h,cl,64);
+        Log(L"vidro real: WGC %ls HRESULT=0x%08X %ls",cl,(unsigned)e.code(),e.message().c_str());
+        return nullptr;
     } catch (...) {
+        Log(L"vidro real: WGC unexpected exception");
         return nullptr;
     }
 }
@@ -762,37 +768,22 @@ std::vector<HWND> pending;
 
 winrt::com_ptr<ID2D1Bitmap1> g_papel;  // o papel de parede da mesa, por baixo do fundo (issue #31; Compose)
 std::vector<RECT> GlassAreas();
+bool wasReady=false, wantNonDesktop=false;
 bool capJaFuncionou = false;  // alguma montagem já teve janela com quadro (a captura funciona neste PC)
-bool appRecusada = false;     // a captura de uma janela de app (não a mesa nem a barra do Windows) foi recusada
 
 void RefreshWindows() {
-    {   // sem captura nenhuma (todas recusadas, nenhuma aberta) por 3 s: também desiste
-        // Com o papel de parede por baixo (g_papel) o fundo não fica preto: logo ao iniciar, sem app aberto, as únicas
-        // janelas são a mesa e a barra do Windows (recusadas sempre), e o vidro desistia até reiniciar num PC em que a
-        // captura funciona (issue #52, GTX 1080 Ti). Aí espera uma janela de app de verdade ser recusada.
-        static DWORD semCaps = 0;
-        if (!caps.empty() || capFailed.empty() || (g_papel && !appRecusada)) semCaps = 0;
-        else if (!semCaps) semCaps = GetTickCount();
-        else if (GetTickCount() - semCaps > 3000 && !capJaFuncionou) semCaptura = true;
-    }
     std::vector<std::pair<HWND, std::shared_ptr<WinCap>>> got;
     { std::lock_guard<std::mutex> lk(readyMx); got.swap(ready); }
     for (auto& [h, c] : got) {
         pending.erase(std::remove(pending.begin(), pending.end(), h), pending.end());
         if (!c) {
             if (!capFailed.count(h)) { wchar_t cl[64] = {}; GetClassNameW(h, cl, 64); Log(L"vidro real: captura recusada para %ls", cl); }
-            {   // a mesa (o papel de parede) é o fundo de quase tudo: sem ela o vidro fica preto onde não há janela atrás
-                wchar_t cl[64] = {}; GetClassNameW(h, cl, 64);
-                if (wcscmp(cl, L"SequoiaMesa") && wcscmp(cl, L"Progman") && wcscmp(cl, L"WorkerW") && wcscmp(cl, L"Shell_TrayWnd") &&
-                    wcscmp(cl, L"Shell_SecondaryTrayWnd")) appRecusada = true;
-                if (!capJaFuncionou && !g_papel && (!wcscmp(cl, L"SequoiaMesa") || !wcscmp(cl, L"Progman") || !wcscmp(cl, L"WorkerW"))) semCaptura = true;
-            }
             capFailed[h] = GetTickCount();
         }
     }
     std::vector<HWND> want;
     bool anyGlass = false;
-    for (auto& [hh, e] : g_entries) if (e.real && IsWindowVisible(e.hwnd)) { anyGlass = true; break; }
+    for (auto& [hh, e] : g_entries) if (e.hasSet && IsWindowVisible(e.hwnd)) { anyGlass = true; break; }
     if (anyGlass) {
         // Cada captura segura 2 quadros do tamanho da janela na memória de vídeo (numa tela 3440x1440, ~40 MB por janela
         // maximizada; com 10 janelas, ~400 MB, que no vídeo integrado saem da RAM). As 6 de cima ficam sempre (o Alt+Tab traz
@@ -851,6 +842,10 @@ void RefreshWindows() {
         DeleteObject(cx.covered); DeleteObject(cx.tmp); DeleteObject(cx.screen);
         std::reverse(want.begin(), want.end());
     }
+    wantNonDesktop=false;
+    for(auto h:want) { wchar_t cl[64]={};GetClassNameW(h,cl,64);
+        if(wcscmp(cl,L"SequoiaMesa")&&wcscmp(cl,L"Progman")&&wcscmp(cl,L"WorkerW")&&wcscmp(cl,L"Shell_TrayWnd")&&wcscmp(cl,L"Shell_SecondaryTrayWnd"))wantNonDesktop=true;
+    }
     bool changed = false;
     std::vector<std::shared_ptr<WinCap>> next;
     std::vector<HWND> toStart;
@@ -860,7 +855,9 @@ void RefreshWindows() {
         if (!c) for (auto& [gh, gc] : got) if (gh == h && gc) { c = gc; changed = true; break; }
         if (!c) {
             auto f = capFailed.find(h);
-            bool failedRecently = f != capFailed.end() && GetTickCount() - f->second < 5000;
+            wchar_t cl[64]={};GetClassNameW(h,cl,64);
+            bool desktop=!wcscmp(cl,L"SequoiaMesa")||!wcscmp(cl,L"Progman")||!wcscmp(cl,L"WorkerW")||!wcscmp(cl,L"Shell_TrayWnd")||!wcscmp(cl,L"Shell_SecondaryTrayWnd");
+            bool failedRecently = f != capFailed.end() && GetTickCount() - f->second < (desktop?60000:5000);
             if (!failedRecently && std::find(pending.begin(), pending.end(), h) == pending.end()) { pending.push_back(h); toStart.push_back(h); }
             continue;
         }
@@ -928,14 +925,14 @@ LONG MarginFor(const Entry& e, const RECT& r) {
     }
     const float k = std::clamp(g_style.refraction, 0.f, 1.f);
     const float dmax = std::min(H * 0.8f, 60 * px) * (0.4f + 1.0f * k);
-    const float sigma = std::max(0.6f + 11.f * g_style.tintK, e.pieceFrost) * px;
+    const float sigma = OpticalBlur(e.pieceFrost) * px;
     return std::clamp((LONG)std::ceil(3 * sigma + dmax + 4), (LONG)8, COMPOSE_MARGIN);
 }
 std::vector<RECT> GlassAreas() {
     std::vector<RECT> v;
     RECT all{ 0, 0, (LONG)texW, (LONG)texH };
     for (auto& [hh, e] : g_entries) {
-        if (!e.real || !IsWindowVisible(e.hwnd) || CoveredByFullscreen(e.hwnd)) continue;
+        if (!e.hasSet || !IsWindowVisible(e.hwnd) || CoveredByFullscreen(e.hwnd)) continue;
         RECT r; GetWindowRect(e.hwnd, &r);
         OffsetRect(&r, -mon.left, -mon.top);
         const LONG mg = MarginFor(e, r);
@@ -1098,16 +1095,16 @@ void Compose() {
     }
     for (auto& c : caps) c->fresh = false;
     HRESULT hr = util->EndDraw();
+    if(FAILED(hr))localgraphics::Report(hr);
     util->SetTarget(nullptr);
     {   // nenhuma janela entregou quadro (captura de janelas recusada: VM, área remota, política): o fundo do vidro
         // ficaria PRETO (Dock, barra de menus e painéis pretos). Depois de 3 s assim, o vidro real desiste e volta o fosco.
         static DWORD vazio = 0;
         // Só desiste se a captura NUNCA funcionou: com ela já funcionando, um fundo vazio é passageiro (a Captura
         // de Tela, um jogo em tela cheia ou o bloqueio cobrindo tudo) e antes desligava o vidro até reiniciar.
-        if (!keep.empty()) { vazio = 0; capJaFuncionou = true; }
-        else if (g_papel && !appRecusada) vazio = 0;  // o papel de parede está por baixo: o fundo não é preto (issue #52)
+        if (SUCCEEDED(hr) && (!keep.empty() || (g_papel && !wantNonDesktop))) { vazio = 0; capJaFuncionou = true; semCaptura = false; }
         else if (!vazio) vazio = GetTickCount();
-        else if (GetTickCount() - vazio > 3000 && !capJaFuncionou) semCaptura = true;
+        else if (GetTickCount() - vazio > 3000) semCaptura = true;
     }
     static size_t lastN = (size_t)-1;
     if (caps.size() != lastN || FAILED(hr)) {  // só quando muda o número de janelas (antes logava ~1,5 vez por segundo)
@@ -1185,6 +1182,7 @@ void Poll(bool refresh) {
     {  // uma peça apareceu ou cresceu para fora da área montada
         for (auto& a : GlassAreas()) if (!Inside(a, composed)) { capDirty = true; allDirty = true; break; }
     }
+    if(refresh && (!capJaFuncionou || semCaptura || caps.empty())) { capDirty=true; allDirty=true; }
     bool go = capDirty.exchange(false);
     if (!go && frameDirty && anim::Now() - lastFrameCompose >= 15) go = true;
     if (!go) return;
@@ -1192,6 +1190,12 @@ void Poll(bool refresh) {
     lastFrameCompose = anim::Now();
     st_composes++;
     Compose();
+    bool ready=capJaFuncionou&&!semCaptura;
+    if(ready!=wasReady) {
+        wasReady=ready;
+        Log(L"vidro real: %ls",ready?L"capture recovered; refraction restored":L"capture temporarily unavailable; frosted fallback with retries");
+        for(auto& [hh,e]:g_entries) { try { Apply(e); } catch(...) {} }
+    }
     for (auto& [hh, e] : g_entries) {
         if (!e.real || !IsWindowVisible(e.hwnd)) continue;
         RECT r; GetWindowRect(e.hwnd, &r);
@@ -1259,12 +1263,12 @@ bool Init() {
 
 bool semCaptura = false;  // a captura de janelas não funciona aqui: o vidro real fica desligado (senão tudo fica preto)
 void SetActive(bool on) {
-    if (on && semCaptura) return;
+    // A capture failure is recoverable; keep the worker available.
     if (on && !Init()) return;
     if (!ok || on == active) return;
     active = on;
     try {
-        if (on) { SetTimer(msgWnd, T_RG, 250, nullptr); SetTimer(msgWnd, T_RG + 1, 16, nullptr); }
+        if (on) { wasReady=false; capJaFuncionou=false; semCaptura=false; capDirty=true; allDirty=true; SetTimer(msgWnd, T_RG, 250, nullptr); SetTimer(msgWnd, T_RG + 1, 16, nullptr); }
         else { KillTimer(msgWnd, T_RG); KillTimer(msgWnd, T_RG + 1); StopCaps(); }
     } catch (...) {}
     ApplyAffinity();
@@ -1419,7 +1423,7 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
     // Transparência (vidro_tinta): 0 = quase nítido, 0,5 = o do Tahoe, 1 = bem fosco
     // macOS 27 Golden Gate: mesmo no mínimo o vidro continua fosco (o controle vai de "quase transparente" a opaco;
     // vídeo do MacVince e capturas do 512 Pixels: o fundo sempre aparece bem desfocado)
-    float sigma = std::max(0.6f + 11.f * st.tintK, minFrost) * px;
+    float sigma = OpticalBlur(minFrost) * px;
     float m = 3 * sigma + dmax + 2;
     ID2D1Effect *crop = Fx(dc, 0, CLSID_D2D1Crop), *blur = Fx(dc, 1, CLSID_D2D1GaussianBlur), *sat = Fx(dc, 2, CLSID_D2D1Saturation),
                 *disp = Fx(dc, 3, CLSID_D2D1DisplacementMap), *mapT = Fx(dc, 4, CLSID_D2D12DAffineTransform);
@@ -1437,7 +1441,7 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
         blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, std::max(0.01f, sigma));
         blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_HARD);
         sat->SetInputEffect(0, blur);
-        sat->SetValue(D2D1_SATURATION_PROP_SATURATION, 1.8f);  // "saturate(180%)"
+        sat->SetValue(D2D1_SATURATION_PROP_SATURATION, st.golden ? 1.35f + .45f*st.tintK : 1.8f);  // "saturate(180%)"
         mapT->SetInput(0, map);
         mapT->SetValue(D2D1_2DAFFINETRANSFORM_PROP_TRANSFORM_MATRIX, D2D1::Matrix3x2F::Scale((float)mw / qw, (float)mh / qh) * D2D1::Matrix3x2F::Translation(sx, sy));
         disp->SetInputEffect(0, sat);
@@ -1479,6 +1483,19 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
                               k == 0 ? D2D1_COMPOSITE_MODE_SOURCE_OVER : D2D1_COMPOSITE_MODE_PLUS);
             }
         } else dc->DrawImage(disp, D2D1::Point2F(ox, oy), D2D1::RectF(sx, sy, sx + w, sy + h), D2D1_INTERPOLATION_MODE_LINEAR, D2D1_COMPOSITE_MODE_SOURCE_OVER);
+    } else if (crop && blur) {
+        crop->SetInput(0,screen);
+        crop->SetValue(D2D1_CROP_PROP_RECT,D2D1::Vector4F(sx-m,sy-m,sx+w+m,sy+h+m));
+        crop->SetValue(D2D1_CROP_PROP_BORDER_MODE,D2D1_BORDER_MODE_HARD);
+        blur->SetInputEffect(0,crop);
+        blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION,sigma);
+        blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE,D2D1_BORDER_MODE_HARD);
+        dc->DrawImage(blur,D2D1::Point2F(ox,oy),D2D1::RectF(sx,sy,sx+w,sy+h));
+    } else {
+        // D2D resource failure: a visible neutral material beats a transparent hole.
+        ID2D1SolidColorBrush* fallback=nullptr;
+        dc->CreateSolidColorBrush(ui::Dark()?D2D1::ColorF(.16f,.16f,.18f,.65f):D2D1::ColorF(.92f,.92f,.94f,.65f),&fallback);
+        if(fallback){dc->FillRectangle(D2D1::RectF(ox,oy,ox+w,oy+h),fallback);fallback->Release();}
     }
     if (withTint) {
         ID2D1SolidColorBrush* b = nullptr;
@@ -1487,18 +1504,18 @@ void DrawPiece(ID2D1DeviceContext* dc, float ox, float oy, float sx, float sy, f
         // senão o texto fica sobre o fundo quase nítido e não dá para ler
         // (17/11/2026, o usuário: o painel de Apps sobre uma página branca ficou branco, nomes ilegíveis): no mínimo 70 %
         // da tinta normal; daí para cima segue o slider
-        if (minFrost > 0) t.a = std::max(t.a, tint.a * std::min(1.f, 0.70f + 0.6f * g_style.tintK));
+        if (minFrost > 0) t.a = std::max(t.a, tint.a * std::min(1.f, PieceTintFloor(minFrost) + 0.6f * g_style.tintK));
         dc->CreateSolidColorBrush(t, &b);
         if (b) { dc->FillRectangle(D2D1::RectF(ox, oy, ox + w, oy + h), b); b->Release(); }
     }
     {   // véu branco de 5% por dentro (rgba(255,255,255,0.05) do estudo; a referência é mais clara por dentro)
         ID2D1SolidColorBrush* v = nullptr;
-        dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.05f * std::min(1.f, 2 * g_style.tintK)), &v);  // some com a transparência no mínimo (no Golden Gate fica)
+        dc->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 0.015f + 0.035f * std::min(1.f, 2 * g_style.tintK)), &v);  // some com a transparência no mínimo (no Golden Gate fica)
         if (v) { dc->FillRectangle(D2D1::RectF(ox, oy, ox + w, oy + h), v); v->Release(); }
     }
     if (noise) {  // ruído de 2,5%: some com os degraus de cor do desfoque
         ID2D1BitmapBrush* nb = nullptr;
-        dc->CreateBitmapBrush(noise, D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_WRAP, D2D1_EXTEND_MODE_WRAP), D2D1::BrushProperties(0.025f), &nb);
+        dc->CreateBitmapBrush(noise, D2D1::BitmapBrushProperties(D2D1_EXTEND_MODE_WRAP, D2D1_EXTEND_MODE_WRAP), D2D1::BrushProperties(st.golden ? 0.010f : 0.025f), &nb);
         if (nb) { dc->FillRectangle(D2D1::RectF(ox, oy, ox + w, oy + h), nb); nb->Release(); }
     }
     if (ID2D1Bitmap* sp = withTint ? nullptr : SpecFor((int)std::ceil(w), (int)std::ceil(h), rad, px, ui::Dark()))  // brilho especular da borda (as peças: quem desenha por cima faz o liquid::Rim)
@@ -1551,7 +1568,7 @@ void Redraw(Entry& e) {
 
 // liga o vidro real numa peça (ou volta ao fosco): a superfície do tamanho da janela vira o fundo
 void Use(Entry& e, bool want) {
-    want = want && ok && active;
+    want = want && ok && active && capJaFuncionou && !semCaptura;
     if (want && e.w >= 1 && e.h >= 1) {
         int W = (int)std::ceil(e.w), H = (int)std::ceil(e.h);
         try {
@@ -1609,7 +1626,7 @@ void backdrop::Reload() {
     s.tintK = (float)_wtof(shell::Setting(L"vidro_tinta", L"0.5").c_str());
     s.refraction = std::clamp(s.refraction, 0.f, 1.f);
     s.tintK = std::clamp(s.tintK, 0.f, 1.f);
-    s.real = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1" && !rg::semCaptura;  // aparece nas gravações (montado pelas janelas)
+    s.real = s.liquid && !s.reduce && shell::Setting(L"vidro_real", L"1") == L"1";  // aparece nas gravações (montado pelas janelas)
     // modo jogo (jogo.cpp): o vidro real remontava o fundo a cada quadro do jogo atrás das peças; fica o vidro comum
     if (jogo::Ativo()) s.real = false;
     rg::g_semRitmo = shell::Setting(L"vidro_ritmo", L"1") == L"0";
@@ -1882,7 +1899,7 @@ winrt::Windows::UI::Composition::CompositionBrush backdrop::FrostFor(winrt::Wind
     return c.CreateHostBackdropBrush();
 }
 
-bool backdrop::Real() { return g_style.real && rg::active; }
+bool backdrop::Real() { return g_style.real && rg::active && rg::capJaFuncionou && !rg::semCaptura; }
 
 void backdrop::Detach(HWND h) {
     auto it = g_entries.find(h);
