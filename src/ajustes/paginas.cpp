@@ -1173,8 +1173,11 @@ Page AparenciaGolden() {
     Row gg = Slider(L"", 0, 1, [] { return (float)_wtof(Setting(L"vidro_tinta", L"0.5").c_str()); },
                     [](float v) { wchar_t b[16]; swprintf_s(b, L"%.2f", v); SetSetting(L"vidro_tinta", b); Redraw(); }, L"", L"");
     gg.height = 36; gg.noLine = true; gg.gg = true; gg.enabled = !reduce;
-    if (goldenOn) p.groups.push_back(G({ modes, prev, gg }));
-    else if (liquidOn) { Row ge = GlassEstiloRow(false); ge.noLine = true; p.groups.push_back(G({ modes, prev, ge })); }
+    Row shadow=Popup(TrPick(L"Sombra da barra de menus",L"Menu bar shadow"),{TrPick(L"Desligado",L"Off"),TrPick(L"Automático",L"Auto"),TrPick(L"Ligado",L"On")},
+        []{auto v=Setting(L"barra_sombra_local",L"auto");return v==L"0"?0:v==L"1"?2:1;},
+        [](int i){SetSetting(L"barra_sombra_local",i==0?L"0":i==2?L"1":L"auto");});
+    if (goldenOn) p.groups.push_back(G({ modes, prev, gg, shadow }));
+    else if (liquidOn) { Row ge = GlassEstiloRow(false); ge.noLine = true; p.groups.push_back(G({ modes, prev, ge, shadow })); }
     else p.groups.push_back(G({ modes }));
 
     // ---- Tema: cor de destaque (Multicor + 10 cores; as do macOS 27 lidas na captura) e cor do realce do texto
@@ -1494,6 +1497,10 @@ Page TransparenciaEfeitos() {
                           [](bool v) { SetSetting(L"barra_vidro", v ? L"1" : L"0"); },
                           L"O vidro do Dock atrás da barra de menus: as letras ficam legíveis em qualquer papel de parede.");
     barGlass.enabled = !reduce && liquid;
+    Row barShadow=Popup(TrPick(L"Sombra da barra de menus",L"Menu bar shadow"),{TrPick(L"Desligado",L"Off"),TrPick(L"Automático",L"Auto"),TrPick(L"Ligado",L"On")},
+        []{auto v=Setting(L"barra_sombra_local",L"auto");return v==L"0"?0:v==L"1"?2:1;},
+        [](int i){SetSetting(L"barra_sombra_local",i==0?L"0":i==2?L"1":L"auto");});
+
     // menus (de contexto, da barra de menus e os do Windows) com o vidro do Dock em vez do vidro tingido (menu_vidro)
     Row menuGlass = Toggle(L"Menus de vidro (Liquid Glass)", [] { return Setting(L"menu_vidro", L"0") == L"1"; },
                            [](bool v) { SetSetting(L"menu_vidro", v ? L"1" : L"0"); },
@@ -1503,7 +1510,7 @@ Page TransparenciaEfeitos() {
     Row wtint = Toggle(L"Permitir tingir janelas com o papel de parede", [] { return Setting(L"tingir_janelas", L"1") != L"0"; },
                        [](bool v) { SetSetting(L"tingir_janelas", v ? L"1" : L"0"); },
                        L"A barra lateral dos apps (Lembretes, Calendário, Contatos, Fotos, Música) ganha um pouco da cor do papel de parede. Vale ao abrir o app de novo.");
-    p.groups.push_back(G({ red, tint, bar, barGlass, menuGlass, wtint }, L"Transparência"));
+    p.groups.push_back(G({ red, tint, bar, barGlass, barShadow, menuGlass, wtint }, L"Transparência"));
 
     Row genie = Toggle(L"Efeito gênio ao minimizar", [] { return Setting(L"genio", L"1") == L"1"; },
                        [](bool v) { SetSetting(L"genio", v ? L"1" : L"0"); });
@@ -1690,6 +1697,21 @@ Page CentralControle() {
     p.groups.push_back(G({ uso(L"CPU", L"barra_cpu", 0xE950), uso(L"GPU", L"barra_gpu", 0xE7F4), uso(L"Memória", L"barra_memoria", 0xE964),
                            uso(L"Disco", L"barra_disco", 0xEDA2) },
                          L"Uso do Sistema", L"Mostra o uso em porcentagem na barra de menus, atualizado a cada segundo. O disco é o espaço ocupado no disco do Windows. Clique para abrir o Monitor de Atividade."));
+    // WMP1 widgets use the same per-user preferences and native switch control.
+    auto extra = [](const wchar_t* label, const wchar_t* key, wchar_t icon) {
+        std::wstring k=key;
+        Row r=Toggle(label,[k]{return Setting(k.c_str(),L"1")!=L"0";},
+                          [k](bool v){SetSetting(k.c_str(),v?L"1":L"0");});
+        r.icon=icon;r.iconColor=C_GRAY;return r;
+    };
+    p.groups.push_back(G({
+        extra(TrPick(L"Velocidade da rede",L"Network Speed"),L"barra_wmp_network",0xE701),
+        extra(TrPick(L"Temperatura da CPU",L"CPU Temperature"),L"barra_wmp_cpu",0xE950),
+        extra(TrPick(L"Temperatura da GPU",L"GPU Temperature"),L"barra_wmp_gpu",0xE7F4),
+        extra(TrPick(L"Hor\u00e1rios de ora\u00e7\u00e3o",L"Prayer Times"),L"barra_wmp_prayer",0xE916),
+        extra(TrPick(L"Uso do Codex",L"Codex Usage"),L"barra_wmp_codex",0xE943)
+    },TrPick(L"M\u00e9tricas adicionais",L"Additional Metrics"),
+       TrPick(L"Escolha os indicadores adicionais da barra de menus.",L"Choose which additional metrics appear in the menu bar.")));
     Row clock = Popup(L"Relógio", { L"Dia, data e hora", L"Só a hora" }, [] { return Setting(L"relogio_curto", L"0") == L"1" ? 1 : 0; },
                       [](int i) { SetSetting(L"relogio_curto", i == 1 ? L"1" : L"0"); });
     clock.icon = 0xE787; clock.iconColor = C_GRAY;
@@ -1927,7 +1949,9 @@ Page MesaDock() {
                                   [](bool v) { SetSetting(L"seletor_finder", v ? L"1" : L"0"); }),
                            Uri(L"Navegador padrão", L"ms-settings:defaultapps") }, L"Janelas"));
     // Organizador Visual (Stage Manager): só o app da frente na tela, os outros numa faixa à esquerda
-    p.groups.push_back(G({ Toggle(L"Organizador Visual", flag(L"organizador", L"0"), setFlag(L"organizador")) }, L"",
+    p.groups.push_back(G({ Toggle(L"Organizador Visual", flag(L"organizador", L"0"), setFlag(L"organizador")),
+                         Toggle(L"Mostrar itens no Organizador Visual",flag(L"palco_icones",L"0"),setFlag(L"palco_icones")),
+                         Toggle(L"Mostrar widgets no Organizador Visual",flag(L"palco_widgets",L"1"),setFlag(L"palco_widgets")) }, L"",
                          L"Os outros apps ficam numa faixa à esquerda; clique numa miniatura para trazer o app."));
     // Cantos Ativos (como no Mac): uma ação por canto da tela; o Shell lê canto_se/sd/ie/id
     {

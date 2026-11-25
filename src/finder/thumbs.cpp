@@ -1,3 +1,5 @@
+#include "../comum/iconnorm.h"
+#include "../comum/semaforo.h"
 // Miniaturas e ícones em duas threads de fundo. Os pedidos mais recentes saem primeiro
 // (o que acabou de aparecer na tela tem prioridade).
 #include "finder.h"
@@ -77,6 +79,7 @@ thumbs::Result* Render(const Req& r) {
     bool anyAlpha = false;
     for (size_t i = 3; i < res->bgra.size(); i += 4) if (res->bgra[i]) { anyAlpha = true; break; }
     if (!anyAlpha) for (size_t i = 3; i < res->bgra.size(); i += 4) res->bgra[i] = 255;
+    if(app&&!semaforo::Leopard())iconnorm::Normalize(res->w,res->h,res->bgra,semaforo::Aqua());
     return res;
 }
 

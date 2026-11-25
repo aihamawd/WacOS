@@ -7,6 +7,7 @@
 #include <shlobj.h>
 #include <shobjidl.h>
 #include "../menu/context_menu.h"
+#include "../comum/transferprogress.h"
 
 namespace {
 std::vector<std::wstring> PathsOf(IDataObject* d) {
@@ -45,6 +46,7 @@ class DropTarget : public IDropTarget {
     // pastas com mola (Mac): parado em cima de uma pasta segurando o arraste, ela pisca e abre
     std::wstring springPath_;
     DWORD springSince_ = 0;
+    bool rightDrag_=false;
 
     // Troca o alvo interno quando o cursor passa para outra pasta.
     void SwitchTo(const std::wstring& path, DWORD keys, POINTL pt, DWORD allowed) {
@@ -97,6 +99,7 @@ public:
     STDMETHODIMP_(ULONG) Release() override { LONG r = InterlockedDecrement(&ref_); if (!r) delete this; return r; }
 
     STDMETHODIMP DragEnter(IDataObject* d, DWORD keys, POINTL pt, DWORD* eff) override {
+        rightDrag_=(keys&MK_RBUTTON)!=0;
         data_ = d; d->AddRef();
         paths_ = PathsOf(d);
         innerPath_.clear();
@@ -105,6 +108,7 @@ public:
     }
 
     STDMETHODIMP DragOver(DWORD keys, POINTL pt, DWORD* eff) override {
+        rightDrag_=rightDrag_||(keys&MK_RBUTTON)!=0;
         DWORD allowed = *eff;
         DropSpot s = SpotAt(pt);
         bool overFolder = s.kind == DropSpot::FOLDER && (s.item >= 0 || s.row >= 0) && !s.path.empty();
@@ -140,8 +144,13 @@ public:
         DropSpot s = SpotAt(pt);
         if (s.kind == DropSpot::FOLDER) {
             SwitchTo(s.path, keys, pt, *eff);
-            if (inner_) inner_->Drop(d, keys, pt, eff);
-            else *eff = DROPEFFECT_NONE;
+            if (inner_) {
+                inner_->DragOver(keys,pt,eff);
+                auto result=rightDrag_?transferprogress::Result{}:
+                    transferprogress::Transfer(hwnd_,d,s.path,*eff,false,true);
+                if(result.handled){inner_->DragLeave();*eff=result.effect;Reset();return result.hr;}
+                inner_->Drop(d, keys, pt, eff);
+            }else *eff=DROPEFFECT_NONE;
         } else if (DWORD e = CustomEffect(s) & *eff) {
             DropCustom(s, paths_);
             *eff = e;  // "atalho": quem arrastou não apaga o original
@@ -162,13 +171,9 @@ HRESULT PasteInto(HWND hwnd, const std::wstring& folder) {
     IDataObject* d = nullptr;
     HRESULT hr = OleGetClipboard(&d);
     if (FAILED(hr)) return hr;
-    DWORD eff = DROPEFFECT_COPY;
-    FORMATETC fe{ (CLIPFORMAT)RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
-    STGMEDIUM m{};
-    if (SUCCEEDED(d->GetData(&fe, &m))) {
-        if (auto* p = (DWORD*)GlobalLock(m.hGlobal)) { eff = *p; GlobalUnlock(m.hGlobal); }
-        ReleaseStgMedium(&m);
-    }
+    DWORD eff = transferprogress::Effect(d);
+    auto result=transferprogress::Transfer(hwnd,d,folder,eff,true,true);
+    if(result.handled){d->Release();return result.hr==HRESULT_FROM_WIN32(ERROR_CANCELLED)?S_OK:result.hr;}
     if (eff & DROPEFFECT_MOVE) eff = DROPEFFECT_MOVE;
     else eff = DROPEFFECT_COPY;
     IDropTarget* t = nullptr;

@@ -1145,6 +1145,8 @@
 { L"Sem prévia", L"No preview" },
 { L"Organizador\nVisual", L"Stage\nManager" },
 { L"Organizador Visual", L"Stage Manager" },
+{ L"Mostrar itens no Organizador Visual", L"Show desktop items in Stage Manager" },
+{ L"Mostrar widgets no Organizador Visual", L"Show widgets in Stage Manager" },
 { L"Os outros apps ficam numa faixa à esquerda; clique numa miniatura para trazer o app.", L"Other apps sit in a strip on the left; click a thumbnail to bring that app forward." },
 { L"Pré-Visualização", L"Preview" },
 { L"Página %d de %d", L"Page %d of %d" },
