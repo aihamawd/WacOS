@@ -245,7 +245,7 @@ bool Create(HINSTANCE hi);
 void Update();          // app ativo mudou, relógio, ícones
 HWND Hwnd();
 int Height();           // px
-void SetFullscreen(bool on, HMONITOR mon = nullptr);  // app em tela cheia na frente: some (só no monitor dele; nullptr = todos)
+void SetFullscreen(bool on, HMONITOR mon = nullptr, HWND foreground = nullptr);  // app em tela cheia na frente: some (só no monitor dele; nullptr = todos)
 int HeightOn(HMONITOR mon);  // px da barra naquele monitor (cada monitor tem a sua barra)
 int ReservedOn(HMONITOR mon);  // px que a barra ocupa no topo daquele monitor (0: secundário sem barra, barra_todos_monitores=0, ou barra embaixo)
 bool Embaixo();         // barra_embaixo: a barra está na linha do Dock (Dock embaixo no monitor principal, fora do Leopard)
@@ -405,6 +405,7 @@ void Stop();
 void Pausar(bool p);  // modo jogo: sem o gancho global do mouse
 void Foreground(HWND h);
 bool Owns(HWND h);  // janela minimizada por "mostrar a mesa" (não vai para o Dock)
+bool DesktopShown();
 }
 namespace mesas {  // áreas de trabalho virtuais pela interface interna do Explorer (mesas.cpp); false = use os atalhos
 bool Switch(int index);
@@ -419,6 +420,7 @@ void Create(HINSTANCE hi);
 std::vector<RECT> Areas();  // onde estão (tela): os ícones da mesa não ficam embaixo deles
 void EditMenu(POINT pt);    // "Editar Widgets…": ligar/desligar cada widget (também sem nenhum na tela)
 void SettingsChanged();     // widget.<id>.on mudou no ajustes.txt (Ajustes > Personalizar a Mesa)
+void StageVisibilityChanged();
 }
 namespace mesa {  // mesa própria (papel de parede + ícones) e o modo sem explorer.exe (mesa.cpp, docs/sem-explorer.md)
 void Start(HINSTANCE hi, HWND msgWnd);  // ajuste explorer=0: fecha o Explorador e assume a mesa
@@ -426,6 +428,7 @@ void Stop(bool restartExplorer);        // false: caiu/fim da sessão (o vigia a
 void Pulse();                           // laço principal: a interface andou (o vigia lê; ver mesa.cpp)
 void NoExplorerOnExit();                // reiniciando o Shell: ao sair, o Explorador não é aberto (o Shell novo vem já)
 void SettingsChanged();                 // ajustes.txt mudou (explorer=0/1)
+void StageVisibilityChanged();
 // cor média do papel de parede que a mesa está mostrando, na faixa atrás da barra de menus (0..1); false sem mesa
 bool TopColor(int barPx, float& r, float& g, float& b, bool baixo = false);
 // a imagem do papel de parede do monitor principal como a mesa desenhou (BGRA, opaca) e onde fica na tela. key muda
@@ -746,6 +749,8 @@ struct Live;
 Live* Start(const std::vector<HWND>& hs, const std::vector<RECT>& srcs);
 std::vector<Gpu> Grab(Live* live, int timeoutMs = 150);
 void Stop(Live* live);
+// Stage Manager: capture real window pixels before parking, not a DWM thumbnail host.
+bool StagePixels(HWND h, const RECT& src, std::vector<BYTE>& pixels, UINT& w, UINT& hh);
 }
 
 namespace ponteiro {  // ponteiro.cpp: sacudir o mouse faz o ponteiro crescer (como no Mac)

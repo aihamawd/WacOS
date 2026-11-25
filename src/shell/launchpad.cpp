@@ -1,3 +1,4 @@
+#include "../comum/iconnorm.h"
 // Launchpad, como no macOS Sequoia (medido no vídeo de referência, tela de 1080): o papel de parede
 // desfocado cobre a tela (as janelas somem), campo de busca no topo, grade de 7 × 5 apps com o nome
 // embaixo, bolinhas de página e o Dock por cima. Tudo na GPU, animado no ritmo do monitor.
@@ -14,7 +15,7 @@
 static ID2D1Bitmap* StyledBitmap(ID2D1RenderTarget* rt, UINT w, UINT h, const std::vector<BYTE>& px) {
     std::wstring st = ui::IconStyle();  // (StyleCheck, mais abaixo, solta os ícones quando o estilo ou a cor mudam)
     std::vector<BYTE> c = px;
-    dock::Cela(w, h, c);  // issue #45: o quadrado cinza do macOS 26, como no Dock
+    // Modern application bitmaps are normalized once at load time.
     if (st == L"padrao") return ui::Bitmap(rt, w, h, c);
     ui::StyleIcon(w, h, c, st);
     return ui::Bitmap(rt, w, h, c);
@@ -218,8 +219,8 @@ void Loader() {
         std::wstring exe;
         if (a.parsing.size() > 4 && !_wcsicmp(a.parsing.c_str() + a.parsing.size() - 4, L".exe")) exe = a.parsing;
         std::wstring png = apps::PackIconByName(a.name, exe);
-        if (!png.empty() && ui::LoadPng(png, a.w, a.h, a.px)) { a.mac = true; ui::Downscale(a.w, a.h, a.px, keep); continue; }
-        if (ui::ShellImage(L"shell:AppsFolder\\" + a.parsing, px, a.w, a.h, a.px, false)) { ui::TrimToSquare(a.w, a.h, a.px); ui::Downscale(a.w, a.h, a.px, keep); }
+        if (!png.empty() && ui::LoadPng(png, a.w, a.h, a.px)) { a.mac = true; if(!liquid::Leopard())iconnorm::Normalize(a.w,a.h,a.px,liquid::Golden()||ui::Dark(),true,keep); else ui::Downscale(a.w,a.h,a.px,keep); continue; }
+        if (ui::ShellImage(L"shell:AppsFolder\\" + a.parsing, px, a.w, a.h, a.px, false)) { if(!liquid::Leopard()&&iconnorm::Normalize(a.w,a.h,a.px,liquid::Golden()||ui::Dark(),false,keep))a.mac=true; else {ui::TrimToSquare(a.w, a.h, a.px); ui::Downscale(a.w, a.h, a.px, keep);} }
     }
     size_t n = found.size();
     {

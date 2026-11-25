@@ -35,7 +35,8 @@ struct Widget {
     Kind kind; const wchar_t* id; const wchar_t* name; float w, h;
     HWND wnd = nullptr, back = nullptr;
     bool glass = false, on = true;
-    int rc = -1, row = -1;  // casa na grade (rc: coluna da borda direita, contando da direita)
+    int rc = -1, row = -1;
+    float renderScale=1.f;  // casa na grade (rc: coluna da borda direita, contando da direita)
     ui::GpuSurface s;
 };
 std::vector<Widget> g_w;
@@ -660,8 +661,8 @@ void PaintSun(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br, ID2D1StrokeStyle
 
 // ---------------------------------------------------------------- janelas
 void Paint(Widget& wd) {
-    if (!wd.on || !wd.wnd) return;
-    float sc = ui::Scale(wd.wnd);
+    if (!wd.on || !wd.wnd || wd.rc<0) return;
+    float sc = wd.renderScale;
     int wpx = (int)std::lround(wd.w * sc), hpx = (int)std::lround(wd.h * sc);
     auto* dc = ui::GpuBegin(wd.s, wpx, hpx, sc);
     if (!dc) return;
@@ -719,7 +720,9 @@ HWND DesktopTop() {
 }
 bool IsOurs(HWND h) { if (h && h == g_ghost) return true; for (auto& w : g_w) if (w.wnd == h || w.back == h) return true; return false; }
 
+bool StageWidgetsVisible(){return !palco::On()||revelar::DesktopShown()||shell::Setting(L"palco_widgets",L"1")!=L"0";}
 void PlaceAtDesktop(Widget& wd) {
+    if(!StageWidgetsVisible())return;
     HWND desk = DesktopTop();
     HWND above = desk ? GetWindow(desk, GW_HWNDPREV) : nullptr;
     while (above && IsOurs(above)) above = GetWindow(above, GW_HWNDPREV);  // acima dos outros widgets também
@@ -746,26 +749,54 @@ const float PITCH = SMALL + GAP;
 const float SPRING_RESPONSE = 0.40f, SPRING_DAMPING = 0.86f;
 const UINT WM_WG_FRAME = WM_APP + 61;
 
-struct Grid { float left, top, right, bottom, sc; };
+bool g_gridLeft=false;
+struct Grid { float left, top, right, bottom, sc; int cols; };
 Grid GridNow(HWND h) {
-    MONITORINFO mi{ sizeof(mi) };
-    GetMonitorInfoW(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY), &mi);
-    float sc = ui::Scale(h);
-    RECT r = shell::WorkAreaFor(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));  // a do Shell (issue #1)
-    return { r.left / sc, r.top / sc, r.right / sc, r.bottom / sc, sc };
+    auto mon=MonitorFromPoint({0,0},MONITOR_DEFAULTTOPRIMARY);
+    RECT r=shell::WorkAreaFor(mon);
+    float dpi=ui::Scale(g_timer?g_timer:h);
+    if(dpi<=0)dpi=1;
+    float W=(r.right-r.left)/dpi,H=(r.bottom-r.top)/dpi;
+    int minCols=1;
+    std::vector<std::pair<int,int>> shapes;
+    for(auto& w:g_w)if(w.on){
+        int c=w.w>SMALL+1?2:1,rr=w.h>SMALL+1?2:1;
+        minCols=std::max(minCols,c);shapes.emplace_back(c,rr);
+    }
+    // Keep the established column count to preserve adjacent saved widget groups.
+    int n=std::max(minCols,(int)std::floor((W-2*MARGIN+GAP)/PITCH));
+    n=std::clamp(n,1,128);
+    // One isotropic scale for widgets AND pitch; no uneven gaps around wide widgets.
+    float factor=std::min(.80f,W/(2*MARGIN+n*PITCH-GAP));
+    std::stable_sort(shapes.begin(),shapes.end(),[](auto a,auto b){return a.first*a.second>b.first*b.second;});
+    // Compute rows by the same first-fit packing used by the compact fallback.
+    // ceil(total area / columns) alone underestimates rows for 2x2 widgets.
+    std::vector<std::vector<bool>> occupied(10,std::vector<bool>(n,false));
+    int rows=1;
+    for(auto [cw,ch]:shapes){
+        bool placed=false;
+        for(int y=0;y+ch<=10&&!placed;y++)for(int x=0;x+cw<=n&&!placed;x++){
+            bool free=true;
+            for(int j=y;j<y+ch;j++)for(int i=x;i<x+cw;i++)if(occupied[j][i])free=false;
+            if(!free)continue;
+            for(int j=y;j<y+ch;j++)for(int i=x;i<x+cw;i++)occupied[j][i]=true;
+            rows=std::max(rows,y+ch);placed=true;
+        }
+    }
+    factor=std::min(factor,H/(2*MARGIN+rows*PITCH-GAP));
+    factor=std::max(.05f,factor);
+    float sc=dpi*factor;
+    float right=g_gridLeft?std::min(r.right/sc,r.left/sc+2*MARGIN+n*PITCH-GAP):r.right/sc;
+    return {r.left/sc,r.top/sc,right,r.bottom/sc,sc,n};
 }
-int Cols(const Widget& w) { return w.w > SMALL + 1 ? 2 : 1; }
-int Rows(const Widget& w) { return w.h > SMALL + 1 ? 2 : 1; }  // o grande ocupa 2 × 2 casas
-// issue #47: as colunas contadas da direita com o passo fixo deixavam sobrar até quase uma casa inteira na esquerda,
-// e nenhum widget ia até a borda esquerda. O passo na horizontal agora se estica um pouco (as colunas cobrem a largura
-// toda, de margem a margem): a última coluna fica rente à margem esquerda. Os índices das casas não mudam.
-int Colunas(const Grid& g) { return std::max(1, (int)std::floor((g.right - g.left - 2 * MARGIN - SMALL) / PITCH) + 1); }
-float PassoX(const Grid& g) { int n = Colunas(g); return n > 1 ? (g.right - g.left - 2 * MARGIN - SMALL) / (n - 1) : PITCH; }
-int MaxRc(const Grid& g, const Widget& w) { return std::max(0, Colunas(g) - Cols(w)); }
-int MaxRow(const Grid& g, const Widget& w) { return std::max(0, (int)std::floor((g.bottom - g.top - 2 * MARGIN - w.h) / PITCH)); }
-POINT CellPx(const Grid& g, const Widget& w, int rc, int row) {  // rc: casa da borda direita do widget, contando da direita
-    float x = g.right - MARGIN - w.w - rc * PassoX(g), y = g.top + MARGIN + row * PITCH;
-    return { (LONG)std::lround(x * g.sc), (LONG)std::lround(y * g.sc) };
+int Cols(const Widget& w) { return w.w>SMALL+1?2:1; }
+int Rows(const Widget& w) { return w.h>SMALL+1?2:1; }
+int Colunas(const Grid& g) { return g.cols; }
+int MaxRc(const Grid& g,const Widget& w){return Colunas(g)-Cols(w);}
+int MaxRow(const Grid& g,const Widget& w){return (int)std::floor((g.bottom-g.top-2*MARGIN-w.h+.01f)/PITCH);}
+POINT CellPx(const Grid& g,const Widget& w,int rc,int row){
+    float x=g.right-MARGIN-w.w-rc*PITCH,y=g.top+MARGIN+row*PITCH;
+    return {(LONG)std::lround(x*g.sc),(LONG)std::lround(y*g.sc)};
 }
 bool Overlaps(const Widget& w, int rc, int row) {
     int a0 = rc, a1 = rc + Cols(w) - 1, r0 = row, r1 = row + Rows(w) - 1;
@@ -778,7 +809,7 @@ bool Overlaps(const Widget& w, int rc, int row) {
 }
 // a casa livre mais perto de px (canto superior esquerdo do widget, em px)
 void Nearest(const Grid& g, const Widget& w, POINT px, int& rc, int& row) {
-    double best = 1e300; rc = 0; row = 0;
+    double best = 1e300; rc = -1; row = -1;
     for (int r = 0; r <= MaxRow(g, w); r++)
         for (int c = 0; c <= MaxRc(g, w); c++) {
             if (Overlaps(w, c, r)) continue;
@@ -824,7 +855,7 @@ void AnimateTo(Widget& w, POINT to) {
 }
 
 void PaintGhost(const Widget& w) {
-    float sc = ui::Scale(w.wnd);
+    float sc = w.renderScale;
     int wpx = (int)std::lround(w.w * sc), hpx = (int)std::lround(w.h * sc);
     auto* rt = ui::Begin(g_ghostS, wpx, hpx, sc);
     if (!rt) return;
@@ -867,7 +898,7 @@ void SaveCell(const Widget& w) {
     shell::SetSetting((std::wstring(L"widget.") + w.id).c_str(), b);
 }
 
-void Position(Widget& wd, bool reset, bool animate = false) {
+void Position(Widget& wd, bool reset, bool animate = false,bool compact=false) {
     Grid g = GridNow(wd.wnd);
     int rc = -1, row = -1, a, b;
     std::wstring saved = reset ? L"" : shell::Setting((std::wstring(L"widget.") + wd.id).c_str(), L"");
@@ -875,9 +906,17 @@ void Position(Widget& wd, bool reset, bool animate = false) {
     if (!saved.empty() && swscanf_s(saved.c_str(), L"g:%d,%d", &a, &b) == 2) { rc = a; row = b; }
     else if (!saved.empty() && swscanf_s(saved.c_str(), L"%d,%d", &a, &b) == 2) Nearest(g, wd, { a, b }, rc, row);  // posição antiga, em px
     else DefaultCell(wd, rc, row);
+    if(MaxRc(g,wd)<0||MaxRow(g,wd)<0){wd.rc=wd.row=-1;return;}
+    if(rc<0||row<0)DefaultCell(wd,rc,row);
     rc = std::clamp(rc, 0, MaxRc(g, wd)); row = std::clamp(row, 0, MaxRow(g, wd));
-    if (Overlaps(wd, rc, row)) Nearest(g, wd, CellPx(g, wd, rc, row), rc, row);
+    if(compact){
+        rc=row=-1;
+        for(int y=0;y<=MaxRow(g,wd)&&rc<0;y++)for(int x=0;x<=MaxRc(g,wd);x++)
+            if(!Overlaps(wd,x,y)){rc=x;row=y;break;}
+    }else if (Overlaps(wd, rc, row)) Nearest(g, wd, CellPx(g, wd, rc, row), rc, row);
     wd.rc = rc; wd.row = row;
+    if(rc<0||row<0)return;
+    wd.renderScale=g.sc;
     POINT p = CellPx(g, wd, rc, row);
     int wpx = (int)std::lround(wd.w * g.sc), hpx = (int)std::lround(wd.h * g.sc);
     g_placing = true;
@@ -888,18 +927,48 @@ void Position(Widget& wd, bool reset, bool animate = false) {
     if (animate) AnimateTo(wd, p);
 }
 
+// Reflow atomically from saved preferences, ignoring previous-resolution occupancy.
+void Reflow(bool reset=false,bool animate=false){
+    if(g_drag)return;
+    g_moves.clear();
+    // Preserve the edge of a saved left-side cluster when unused screen width remains.
+    // Right-oriented and mixed layouts retain the default right-edge anchor.
+    auto baseGrid=GridNow(g_timer);
+    bool any=false,allLeft=!reset;
+    for(auto& w:g_w)if(w.on&&w.wnd){
+        int c=0,row=0;
+        auto saved=shell::Setting((std::wstring(L"widget.")+w.id).c_str(),L"");
+        if(swscanf_s(saved.c_str(),L"g:%d,%d",&c,&row)!=2||c<baseGrid.cols/2)allLeft=false;
+        any=true;
+    }
+    g_gridLeft=any&&allLeft;
+    for(auto& w:g_w)w.rc=w.row=-1;
+    // Larger widgets first avoids unnecessary fragmentation in cramped layouts.
+    std::vector<Widget*> order;
+    for(auto& w:g_w)if(w.on&&w.wnd)order.push_back(&w);
+    std::stable_sort(order.begin(),order.end(),[](Widget*a,Widget*b){return Cols(*a)*Rows(*a)>Cols(*b)*Rows(*b);});
+    bool overflow=false;
+    for(auto* w:order){Position(*w,reset,animate);overflow=overflow||w->rc<0;}
+    if(overflow){
+        g_moves.clear();
+        for(auto& w:g_w)w.rc=w.row=-1;
+        for(auto* w:order)Position(*w,reset,animate,true);
+    }
+    for(auto* w:order){
+        if(w->rc<0||!StageWidgetsVisible()){ShowWindow(w->wnd,SW_HIDE);ShowWindow(w->back,SW_HIDE);continue;}
+        ShowWindow(w->back,SW_SHOWNOACTIVATE);ShowWindow(w->wnd,SW_SHOWNOACTIVATE);
+        PlaceAtDesktop(*w);Paint(*w);
+    }
+}
 void Show(Widget& wd, bool on) {
     wd.on = on;
     if (!on) wd.rc = -1;  // a casa fica livre
     if (on) {
-        Position(wd, false);
-        ShowWindow(wd.back, SW_SHOWNOACTIVATE);
-        ShowWindow(wd.wnd, SW_SHOWNOACTIVATE);
-        PlaceAtDesktop(wd);
-        Paint(wd);
+        Reflow();
     } else {
         ShowWindow(wd.wnd, SW_HIDE);
         ShowWindow(wd.back, SW_HIDE);
+        Reflow();
     }
 }
 
@@ -968,15 +1037,14 @@ void Menu(Widget* wd, POINT pt) {  // wd nulo: "Editar Widgets…" da mesa (só 
         if (t != TamanhoDe(*wd)) {
             AplicaTamanho(*wd, t);
             shell::SetSetting((std::wstring(L"widget.") + wd->id + L".tam").c_str(), std::wstring(1, t));
-            Position(*wd, false);
-            SaveCell(*wd);
-            PlaceAtDesktop(*wd);
-            Paint(*wd);
+            Reflow();
+            if(wd->rc>=0)SaveCell(*wd);
         }
     } else if (id == 1 && wd) { Show(*wd, false); shell::SetSetting((std::wstring(L"widget.") + wd->id + L".on").c_str(), L"0"); }
     else if (id == 2) {
         for (auto& w : g_w) w.rc = -1;
-        for (auto& w : g_w) { shell::SetSetting((std::wstring(L"widget.") + w.id).c_str(), L""); if (w.on) Position(w, true, true); }
+        for (auto& w : g_w) shell::SetSetting((std::wstring(L"widget.") + w.id).c_str(), L"");
+        Reflow(true,true);
     } else if (id >= 10 && id < 10 + (int)g_w.size()) {
         Widget& t = g_w[id - 10];
         Show(t, !t.on);
@@ -1025,7 +1093,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
                 MoveWin(*g_drag, p.x, p.y);
                 Grid g = GridNow(g_drag->wnd);
                 Nearest(g, *g_drag, p, g_targetRc, g_targetRow);
-                g_ghostTo = CellPx(g, *g_drag, g_targetRc, g_targetRow);
+                if(g_targetRc>=0)g_ghostTo = CellPx(g, *g_drag, g_targetRc, g_targetRow);
             }
         }
         return 0;
@@ -1036,8 +1104,8 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
             if (m == WM_LBUTTONUP) ReleaseCapture();
             if (dragged) {  // encaixa na casa com a mola
                 d->rc = g_targetRc; d->row = g_targetRow;
-                SaveCell(*d);
-                AnimateTo(*d, CellPx(GridNow(d->wnd), *d, d->rc, d->row));
+                if(d->rc>=0){SaveCell(*d);AnimateTo(*d,CellPx(GridNow(d->wnd),*d,d->rc,d->row));}
+                else Reflow();
                 Animate(true);
             } else if (m == WM_LBUTTONUP) Click(*d);
         }
@@ -1060,7 +1128,7 @@ void CALLBACK OnForeground(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, 
 
 LRESULT CALLBACK TimerProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
     if (m == WM_WG_FRAME) { Frame(); return 0; }
-    if (m == WM_WG_DESK) { if (!g_drag) for (auto& w : g_w) if (w.on && BelowDesktop(w)) { for (auto& x : g_w) if (x.on) PlaceAtDesktop(x); break; } return 0; }
+    if (m == WM_WG_DESK) { if (!g_drag) for (auto& w : g_w) if (w.on && w.rc>=0 && BelowDesktop(w)) { for (auto& x : g_w) if (x.on && x.rc>=0) PlaceAtDesktop(x); break; } return 0; }
     if (m == WM_WX_READY) { for (auto& w : g_w) if (w.kind == K_WEATHER || w.kind == K_SUN) Paint(w); return 0; }
     if (m == WM_TIMER && wp == 1) {
         SYSTEMTIME t; GetLocalTime(&t);
@@ -1074,27 +1142,29 @@ LRESULT CALLBACK TimerProc(HWND h, UINT m, WPARAM wp, LPARAM lp) {
         {   // área de trabalho mudou (a barra de menus reservou a faixa de cima depois que os widgets nasceram, ou o
             // Dock mudou): reposiciona. O Shell muda a área sem avisar todo mundo, então o WM_SETTINGCHANGE não chegava
             // e os widgets ficavam por cima da barra de menus (17/11/2026)
-            static RECT lastWork{};
+            static RECT lastWork{}; static UINT lastDpi=0;
             RECT work = shell::WorkAreaFor(MonitorFromPoint({ 0, 0 }, MONITOR_DEFAULTTOPRIMARY));  // a do Shell (issue #1)
-            if (!EqualRect(&work, &lastWork) && !g_drag && g_moves.empty()) {
+            UINT dpi=GetDpiForWindow(g_timer);
+            if ((!EqualRect(&work, &lastWork)||dpi!=lastDpi) && !g_drag && g_moves.empty()) {
+                lastDpi=dpi;
                 bool first = lastWork.right == 0;
                 lastWork = work;
                 (void)first;  // também na primeira: os widgets podem ter nascido com a área antiga (sem a barra)
-                for (auto& w : g_w) if (w.on) { Position(w, false); Paint(w); }
+                Reflow();
             }
         }
         bool below = false;
         if (checkZ) for (auto& w : g_w) if (w.on) { below = BelowDesktop(w); break; }
         for (auto& w : g_w) {
-            if (!w.on) continue;
+            if (!w.on || w.rc<0) continue;
             if (below) PlaceAtDesktop(w);
             if (all || w.kind == K_CLOCK || w.kind == K_WORLD) Paint(w);
         }
         return 0;
     }
     if (m == WM_TIMER && wp == 2) { Fetch(); return 0; }
-    if (m == WM_DISPLAYCHANGE || (m == WM_SETTINGCHANGE && wp == SPI_SETWORKAREA)) {
-        for (auto& w : g_w) if (w.on) { Position(w, false); Paint(w); }
+    if (m == WM_DISPLAYCHANGE || m==WM_DPICHANGED || (m == WM_SETTINGCHANGE && wp == SPI_SETWORKAREA)) {
+        Reflow();
         return 0;
     }
     return DefWindowProcW(h, m, wp, lp);
@@ -1113,6 +1183,14 @@ LRESULT CALLBACK BackProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 void widgets::EditMenu(POINT pt) { if (!g_w.empty()) Menu(nullptr, pt); }
 
 // Ajustes > Mesa e Dock > Personalizar a Mesa liga/desliga cada widget (widget.<id>.on): segue o arquivo
+void widgets::StageVisibilityChanged(){
+    bool show=StageWidgetsVisible();
+    for(auto& w:g_w){
+        if(!w.on||w.rc<0||!w.wnd)continue;
+        if(!show){ShowWindow(w.wnd,SW_HIDE);ShowWindow(w.back,SW_HIDE);}
+        else if(!IsWindowVisible(w.wnd)){ShowWindow(w.back,SW_SHOWNOACTIVATE);ShowWindow(w.wnd,SW_SHOWNOACTIVATE);PlaceAtDesktop(w);Paint(w);}
+    }
+}
 void widgets::SettingsChanged() {
     // a cidade do tempo mudou (Tempo > Usar como Meu Local, ou "Editar Local…" do widget): busca já, sem esperar 15 min
     static cidade::Padrao def;
@@ -1174,8 +1252,9 @@ void widgets::Create(HINSTANCE hi) {
             std::wstring t = shell::Setting((std::wstring(L"widget.") + wd.id + L".tam").c_str(), L"");
             if (!t.empty()) AplicaTamanho(wd, t[0]);
         }
-        Show(wd, shell::Setting((std::wstring(L"widget.") + wd.id + L".on").c_str(), L"1") != L"0");
+        wd.on=shell::Setting((std::wstring(L"widget.") + wd.id + L".on").c_str(), L"1") != L"0";
     }
+    Reflow();
     SetTimer(g_timer, 1, 1000, nullptr);
     SetTimer(g_timer, 2, 15 * 60 * 1000, nullptr);
     SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, OnForeground, 0, 0, WINEVENT_OUTOFCONTEXT);

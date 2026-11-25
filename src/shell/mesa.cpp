@@ -1,4 +1,8 @@
-﻿// Mesa própria (papel de parede + ícones da Área de Trabalho), para o Shell rodar sem o explorer.exe.
+﻿#include "../comum/iconnorm.h"
+#include "../comum/localvolumes.h"
+#include "../comum/fileprogress.h"
+#include "../comum/transferprogress.h"
+// Mesa própria (papel de parede + ícones da Área de Trabalho), para o Shell rodar sem o explorer.exe.
 // Ver docs/sem-explorer.md.
 //
 // Ajuste `explorer` em %APPDATA%\Shell\ajustes.txt:
@@ -17,6 +21,7 @@
 // da mesa ou para outra casa da grade), soltar arquivos de fora, F2 renomeia, Delete vai para a Lixeira,
 // Ctrl+C/X/V, menu de contexto (o nosso, com as extensões do Windows) e o menu do fundo do Mac.
 #include "shell.h"
+#include "../comum/mackeys-local.h"
 #include "../comum/fonte_cjk.h" // a reserva para coreano, japonês e chinês
 #include "../comum/ajustes_arquivo.h"
 #include <dwmapi.h>
@@ -120,6 +125,7 @@ std::vector<Mon> g_mons;
 
 // ------------------------------------------------------------------ ícones
 struct Item {
+    std::wstring visualName;
     std::wstring path, name, key;  // key: caminho em minúsculas
     bool dir = false;
     FILETIME mtime{};
@@ -143,7 +149,10 @@ std::map<std::wstring, std::pair<float, float>> g_off;  // e o deslocamento livr
 // encaixa nas casas. mesa_grade=1 liga a grade.
 bool Livre() { return shell::Setting(L"mesa_grade", L"0") != L"1"; }
 // "Ocultar Ícones da Mesa" (menu da mesa e Ajustes > Mesa e Dock): os arquivos continuam lá, só não aparecem
-bool IconesOn() { return shell::Setting(L"mesa_icones", L"1") != L"0"; }
+bool IconesOn() {
+    if(palco::On()&&!revelar::DesktopShown())return shell::Setting(L"palco_icones",L"0")!=L"0";
+    return shell::Setting(L"mesa_icones", L"1") != L"0";
+}
 POINT g_grab{ -1, -1 };  // onde o ícone foi pego (px, a partir do canto do ícone), para soltar exatamente ali
 IDWriteTextFormat* g_tf = nullptr;
 float g_tfScale = 0;
@@ -154,6 +163,8 @@ int g_press = -1; POINT g_pressPt{}; bool g_pressCtrl = false;
 bool g_band = false; POINT g_bandA{}, g_bandB{};
 std::vector<bool> g_bandOrig;
 bool g_dragSrc = false; int g_dragAnchor = -1;
+bool g_localDrag=false; POINT g_localPt{};
+bool Movable(const Item& it) { return !it.stack && (!g_stacks || it.kind<0); }
 int g_dropHi = -1;
 POINT g_dropHint{ -1, -1 }; DWORD g_dropHintAt = 0;   // casa onde os próximos itens novos entram
 std::wstring g_renameAfter;                             // nova pasta: renomeia quando aparecer
@@ -531,7 +542,7 @@ void BuildStacks() {
 
 // Pilhas ligadas: arrumação automática (como no Mac): as pilhas em ordem, cada aberta seguida do seu conteúdo,
 // depois pastas e atalhos. Nada é gravado em mesa.txt (as posições livres voltam ao desligar).
-void ArrangeStacks() {
+void ArrangeStacks(bool forgetSaved=false) {
     ReadBlocked();
     int C = Cols(), R = Rows(), c = 0, r = 0;
     auto next = [&](Item& it) {
@@ -540,18 +551,39 @@ void ArrangeStacks() {
         it.col = c; it.row = r;
         if (++r >= R) { r = 0; c++; }
     };
-    for (auto& it : g_items) it.col = it.row = -1;
+    for (auto& it : g_items) { it.col = it.row = -1; it.ox=it.oy=0; }
     for (auto& s : g_items) {
         if (!s.stack) continue;
         next(s);
         if (!g_openStacks.count(s.kind)) continue;
         for (auto& it : g_items) if (!it.stack && it.kind == s.kind) next(it);
     }
-    for (auto& it : g_items) if (!it.stack && it.kind < 0) next(it);
+    std::set<std::pair<int,int>> taken;
+    for(auto& it:g_items)if(it.col>=0)taken.insert({it.col,it.row});
+    for(auto& it:g_items)if(Movable(it)&&!forgetSaved){
+        auto f=g_pos.find(it.key);
+        if(f!=g_pos.end()){
+            int x=f->second.first,y=f->second.second;
+            auto o=g_off.find(it.key);
+            bool freePos=Livre()&&o!=g_off.end()&&(o->second.first!=0||o->second.second!=0);
+            if(x>=0&&x<C&&y>=0&&y<R&&(freePos||(!Blocked(x,y)&&!taken.count({x,y})))){
+                it.col=x;it.row=y; taken.insert({x,y});
+                auto o=g_off.find(it.key);if(Livre()&&o!=g_off.end()){it.ox=o->second.first;it.oy=o->second.second;}
+            }
+        }
+    }
+    for(auto& it:g_items)if(Movable(it)&&it.col<0){
+        while(c<C&&(Blocked(c,r)||taken.count({c,r}))){if(++r>=R){r=0;c++;}}
+        next(it);taken.insert({it.col,it.row});
+    }
+    if(forgetSaved){
+        for(auto& it:g_items)if(Movable(it)&&it.col>=0){g_pos[it.key]={it.col,it.row};g_off.erase(it.key);}
+        SavePositions();
+    }
 }
 
 void Arrange(bool forgetSaved = false) {
-    if (g_stacks) { ArrangeStacks(); return; }
+    if (g_stacks) { ArrangeStacks(forgetSaved); return; }
     ReadBlocked();
     int C = Cols(), R = Rows();
     std::set<std::pair<int, int>> taken;
@@ -601,8 +633,10 @@ void Arrange(bool forgetSaved = false) {
 
 // ------------------------------------------------------------------ itens
 void QueueIcons();
+int ShortcutKind(const std::wstring& path,std::wstring* rootOut=nullptr);
 void Reload() {
     if (!Primary()) return;
+    if(g_localDrag){g_localDrag=false;g_press=-1;g_dragAnchor=-1;g_grab={-1,-1};if(GetCapture()==Primary()->h)ReleaseCapture();}
     LerMedidas();
     std::map<std::wstring, Item> old;
     for (auto& it : g_items) old[it.key] = std::move(it);
@@ -622,9 +656,11 @@ void Reload() {
             it.mtime = fd.ftLastWriteTime;
             SHFILEINFOW sfi{};
             it.name = SHGetFileInfoW(it.path.c_str(), 0, &sfi, sizeof(sfi), SHGFI_DISPLAYNAME) ? sfi.szDisplayName : fd.cFileName;
+            std::wstring volumeRoot;
+            if(ShortcutKind(it.path,&volumeRoot)==2)it.visualName=localvolumes::Display(volumeRoot);
             auto o = old.find(it.key);
             if (o != old.end()) {
-                it.col = o->second.col; it.row = o->second.row; it.sel = o->second.sel; it.loading = o->second.loading;
+                it.col = o->second.col; it.row = o->second.row; it.ox=o->second.ox; it.oy=o->second.oy; it.sel = o->second.sel; it.loading = o->second.loading;
                 if (CompareFileTime(&o->second.mtime, &it.mtime) == 0) { it.px = std::move(o->second.px); it.iw = o->second.iw; it.ih = o->second.ih; it.bmp = o->second.bmp; o->second.bmp = nullptr; }
                 else it.loading = false;
             }
@@ -650,23 +686,56 @@ void Reload() {
     }
 }
 
+int ShortcutKind(const std::wstring& path,std::wstring* rootOut) {
+    if(Lower(PathFindExtensionW(path.c_str()))!=L".lnk")return false;
+    IShellLinkW* link=nullptr; int kind=0;
+    if(SUCCEEDED(CoCreateInstance(CLSID_ShellLink,nullptr,CLSCTX_INPROC_SERVER,IID_PPV_ARGS(&link)))){
+        IPersistFile* pf=nullptr;
+        if(SUCCEEDED(link->QueryInterface(IID_PPV_ARGS(&pf)))){
+            if(SUCCEEDED(pf->Load(path.c_str(),STGM_READ))){
+                wchar_t target[MAX_PATH]={};
+                if(SUCCEEDED(link->GetPath(target,MAX_PATH,nullptr,SLGP_RAWPATH))){
+                    bool root=wcslen(target)==3&&target[1]==L':'&&(target[2]==L'\\'||target[2]==L'/')&&
+                        ((target[0]>=L'A'&&target[0]<=L'Z')||(target[0]>=L'a'&&target[0]<=L'z'));
+                    if(root){kind=2;if(rootOut)*rootOut=target;}
+                    else if(target[0]&&target[1]==L':'&&GetDriveTypeW((std::wstring(target,2)+L"\\").c_str())!=DRIVE_REMOTE){
+                        DWORD at=GetFileAttributesW(target);
+                        if(at!=INVALID_FILE_ATTRIBUTES&&(at&FILE_ATTRIBUTE_DIRECTORY))kind=1;
+                    }
+                }
+            }
+            pf->Release();
+        }
+        link->Release();
+    }
+    return kind;
+}
 void QueueIcons() {
     std::vector<std::wstring> todo;
-    for (auto& it : g_items) if (!it.stack && it.px.empty() && !it.loading) { it.loading = true; todo.push_back(it.path); }
+    std::map<std::wstring,std::wstring> appIcons;
+    for (auto& it : g_items) if (!it.stack && it.px.empty() && !it.loading) {
+        it.loading = true; todo.push_back(it.path);
+        if(!it.dir) {
+            std::wstring ext=Lower(PathFindExtensionW(it.path.c_str()));
+            if(ext==L".lnk"||ext==L".exe"||ext==L".appref-ms"||ext==L".url") {
+                // Use the same theme-aware resolver as Dock/Launchpad; resolve on UI thread
+                // because its per-theme name index is shared with those surfaces.
+                auto png=apps::PackIconByName(it.name,ext==L".exe"?it.path:L"");
+                if(!png.empty())appIcons.emplace(it.path,std::move(png));
+            }
+        }
+    }
     if (todo.empty()) return;
     int gen = g_iconGen.load();
     int px = (int)std::lround(ICON * Sc());
     HWND ctl = g_ctl;
     // issue #48: a pasta do tema (a mesma do Finder): Tahoe e Golden Gate com a do MacTahoe, Leopard com a azul do 10.5.
     // Antes a mesa usava sempre o ícone do sistema (a pasta do Sequoia do pacote de ícones).
-    std::wstring pastaTema;
-    if (liquid::Leopard() || liquid::On()) {
-        wchar_t e[MAX_PATH]; GetModuleFileNameW(nullptr, e, MAX_PATH);
-        std::wstring d = e; d = d.substr(0, d.find_last_of(L'\\')); d = d.substr(0, d.find_last_of(L'\\'));  // bin\ -> a pasta do WacOS
-        pastaTema = d + (liquid::Leopard() ? L"\\icones\\leopard\\folder default.png" : L"\\icones\\tahoe\\folder default.png");
-        if (GetFileAttributesW(pastaTema.c_str()) == INVALID_FILE_ATTRIBUTES) pastaTema.clear();
-    }
-    std::thread([todo, gen, px, ctl, pastaTema] {
+    std::wstring pastaTema=ui::PackIcon(L"folder default");
+    std::wstring volumeTema=ui::PackIcon(L"volume default");
+    bool themedFolders=shell::Setting(L"mesa_pastas_tema",L"1")==L"1";
+    bool modern=!liquid::Leopard(),dark=liquid::Golden()||ui::Dark();
+    std::thread([todo, gen, px, ctl, pastaTema, volumeTema, themedFolders, appIcons,modern,dark] {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         int n = 0;
         for (auto& p : todo) {
@@ -676,11 +745,23 @@ void QueueIcons() {
             // que na VM (sem a troca de ícones do sistema do PC) é uma folha branca. Pasta com ícone próprio (desktop.ini) fica.
             bool got = false;
             DWORD at = shell::nativo || !pastaTema.empty() ? GetFileAttributesW(p.c_str()) : INVALID_FILE_ATTRIBUTES;
-            if (at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY) && GetFileAttributesW((p + L"\\desktop.ini").c_str()) == INVALID_FILE_ATTRIBUTES) {
+            if (at != INVALID_FILE_ATTRIBUTES && (at & FILE_ATTRIBUTE_DIRECTORY) && (themedFolders || GetFileAttributesW((p + L"\\desktop.ini").c_str()) == INVALID_FILE_ATTRIBUTES)) {
                 std::wstring png = !pastaTema.empty() ? pastaTema : ui::PackIcon(L"folder default");
                 got = !png.empty() && ui::LoadPng(png, l.w, l.h, l.px);
             }
+            int shortcut=ShortcutKind(p);
+            bool volume=shortcut==2;
+            if(!got && !volumeTema.empty() && volume) {
+                got=ui::LoadPng(volumeTema,l.w,l.h,l.px);
+            }
+            if(!got) {
+                auto found=appIcons.find(p);
+                if(found!=appIcons.end())got=ui::LoadPng(found->second,l.w,l.h,l.px);
+            }
             if (!got && !ui::FileImage(p, px, l.w, l.h, l.px)) continue;
+            auto ext=Lower(PathFindExtensionW(p.c_str()));
+            bool application=ext==L".lnk"||ext==L".exe"||ext==L".appref-ms"||ext==L".url";
+            if(modern&&application&&shortcut==0)iconnorm::Normalize(l.w,l.h,l.px,dark,got);
             { std::lock_guard<std::mutex> lk(g_iconMx); g_loaded.push_back(std::move(l)); }
             if (++n % 6 == 0) PostMessageW(ctl, WM_MS_ICONS, 0, 0);
         }
@@ -712,7 +793,7 @@ void ForgetIcons() {  // escala mudou / associações mudaram
 // ------------------------------------------------------------------ desenho
 D2D1_RECT_F ItemCell(const Item& it) {
     D2D1_RECT_F c = CellRect(it.col, it.row);
-    if (!g_stacks && (it.ox != 0 || it.oy != 0)) { float s = Sc(); c.left += it.ox * s; c.right += it.ox * s; c.top += it.oy * s; c.bottom += it.oy * s; }
+    if (Movable(it) && (it.ox != 0 || it.oy != 0)) { float s = Sc(); c.left += it.ox * s; c.right += it.ox * s; c.top += it.oy * s; c.bottom += it.oy * s; }
     return c;
 }
 D2D1_RECT_F IconBox(const Item& it) {
@@ -764,6 +845,9 @@ void DrawIcons(ID2D1RenderTarget* rt) {
     for (int i = 0; i < (int)g_items.size(); i++) {
         auto& it = g_items[i];
         if (it.col < 0) continue;
+        struct RestoreTransform { ID2D1RenderTarget* rt; D2D1_MATRIX_3X2_F old; ~RestoreTransform(){rt->SetTransform(old);} } restore{rt,{}};
+        rt->GetTransform(&restore.old);
+        if(g_localDrag && it.sel && Movable(it))rt->SetTransform(D2D1::Matrix3x2F::Translation((float)(g_localPt.x-g_pressPt.x),(float)(g_localPt.y-g_pressPt.y))*restore.old);
         bool hi = it.sel || i == g_dropHi;
         D2D1_RECT_F ib = IconBox(it);
         if (hi) {
@@ -803,7 +887,8 @@ void DrawIcons(ID2D1RenderTarget* rt) {
         if (i == g_editIdx && g_edit) continue;
         D2D1_RECT_F lb = LabelBox(it);
         IDWriteTextLayout* lay = nullptr;
-        ui::dw->CreateTextLayout(it.name.c_str(), (UINT32)it.name.size(), g_tf, lb.right - lb.left, lb.bottom - lb.top, &lay);
+        const auto& caption=it.visualName.empty()?it.name:it.visualName;
+        ui::dw->CreateTextLayout(caption.c_str(), (UINT32)caption.size(), g_tf, lb.right - lb.left, lb.bottom - lb.top, &lay);
         if (!lay) continue;
         if (it.sel) {
             DWRITE_TEXT_METRICS tm{}; lay->GetMetrics(&tm);
@@ -998,9 +1083,10 @@ void DeleteSelection(bool permanent) {
         IShellItem* si = nullptr;
         if (SUCCEEDED(SHCreateItemFromParsingName(g_items[i].path.c_str(), nullptr, IID_PPV_ARGS(&si)))) { if (SUCCEEDED(op->DeleteItem(si, nullptr))) n++; si->Release(); }
     }
-    HRESULT hr = n ? op->PerformOperations() : E_FAIL;
+    HRESULT hr = n ? fileprogress::Perform(op,ui::Dark()||liquid::Golden()) : E_FAIL;
+    BOOL aborted=FALSE;op->GetAnyOperationsAborted(&aborted);
     op->Release();
-    if (SUCCEEDED(hr) && !permanent) shell::Sound(L"move_to_trash");
+    if (SUCCEEDED(hr) && !aborted && !permanent) shell::Sound(L"move_to_trash");
     Log(L"mesa: %d item(ns) %ls (0x%08X)", n, permanent ? L"apagados" : L"para a Lixeira", (unsigned)hr);
 }
 
@@ -1090,8 +1176,8 @@ void BeginEditAt(int idx) {
 namespace {
 
 void Reposition(POINT client) {
-    if (g_stacks) return;  // com Pilhas a mesa se arruma sozinha (como no Mac)
-    if (g_dragAnchor < 0 || g_dragAnchor >= (int)g_items.size()) return;
+    // Stacked files remain arranged; folders and shortcuts may move independently.
+    if (g_dragAnchor < 0 || g_dragAnchor >= (int)g_items.size() || !Movable(g_items[g_dragAnchor])) return;
     if (Livre()) {  // "Ordenar Por > Nenhum": o ícone fica onde foi solto (a casa é só a mais perto, para gravar)
         float s = Sc();
         D2D1_RECT_F a = IconBox(g_items[g_dragAnchor]);
@@ -1100,7 +1186,7 @@ void Reposition(POINT client) {
         if (std::fabs(dx) < 1 && std::fabs(dy) < 1) return;
         RECT w = Work();
         for (int i : Selected()) {
-            auto& it = g_items[i];
+            auto& it = g_items[i]; if(!Movable(it))continue;
             D2D1_RECT_F ib = IconBox(it);
             float cx = (ib.left + ib.right) / 2 + dx, cy = (ib.top + ib.bottom) / 2 + dy;
             // dentro da área de trabalho (não some atrás da barra de menus nem do Dock)
@@ -1127,7 +1213,8 @@ void Reposition(POINT client) {
     std::set<std::pair<int, int>> taken;
     for (auto& it : g_items) if (!it.sel && it.col >= 0) taken.insert({ it.col, it.row });
     std::vector<int> moving = Selected();
-    std::sort(moving.begin(), moving.end(), [](int a, int b) { return a == g_dragAnchor ? true : b == g_dragAnchor ? false : a < b; });
+    moving.erase(std::remove_if(moving.begin(),moving.end(),[](int i){return !Movable(g_items[i]);}),moving.end());
+    std::sort(moving.begin(), moving.end(), [](int a, int b) { return a != b && (a == g_dragAnchor ? true : b == g_dragAnchor ? false : a < b); });
     for (int i : moving) {
         auto& it = g_items[i];
         int c = std::clamp(it.col + dc, 0, C - 1), r = std::clamp(it.row + dr, 0, R - 1);
@@ -1152,6 +1239,7 @@ struct DeskDrop : IDropTarget {
     LONG ref = 1;
     IDataObject* obj = nullptr;
     IDropTarget* fwd = nullptr;
+    bool rightDrag=false;
     int fwdIdx = -2;              // -1 pasta da mesa, >= 0 pasta da mesa embaixo do cursor, -3 reposicionar
     IDropTargetHelper* helper = nullptr;
     HWND hwnd = nullptr;
@@ -1181,7 +1269,7 @@ struct DeskDrop : IDropTarget {
     }
     HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* o, DWORD keys, POINTL pt, DWORD* eff) override {
         if (obj) obj->Release();
-        obj = o; obj->AddRef();
+        obj = o; obj->AddRef();rightDrag=(keys&MK_RBUTTON)!=0;
         fwdIdx = -2;
         DWORD allowed = *eff;
         if (!Retarget(keys, pt, eff) && fwdIdx == -3) *eff = allowed & DROPEFFECT_MOVE;
@@ -1190,6 +1278,7 @@ struct DeskDrop : IDropTarget {
         return S_OK;
     }
     HRESULT STDMETHODCALLTYPE DragOver(DWORD keys, POINTL pt, DWORD* eff) override {
+        rightDrag=rightDrag||(keys&MK_RBUTTON)!=0;
         DWORD allowed = *eff;
         if (!Retarget(keys, pt, eff)) {
             if (fwdIdx == -3) *eff = allowed & DROPEFFECT_MOVE;
@@ -1227,6 +1316,9 @@ struct DeskDrop : IDropTarget {
                 Mon* m = Primary();
                 if (m) { POINT c{ p.x - m->r.left, p.y - m->r.top }; int col, row; CellAt(c, col, row); g_dropHint = { col, row }; g_dropHintAt = GetTickCount(); }
             }
+            std::wstring folder=fwdIdx>=0?g_items[fwdIdx].path:g_userDesk;
+            auto result=rightDrag?transferprogress::Result{}:transferprogress::Transfer(DonoOperacoes(),o,folder,*eff,false,ui::Dark()||liquid::Golden());
+            if(result.handled){fwd->DragLeave();*eff=result.effect;Clear();return result.hr;}
             fwd->Drop(o, keys, pt, eff);
         } else { *eff = DROPEFFECT_NONE; if (helper) helper->DragLeave(); }
         Clear();
@@ -1263,9 +1355,35 @@ void ItemMenu(HWND h, POINT screen, int idx) {
     if (r.rename) { for (int i = 0; i < (int)g_items.size(); i++) if (g_items[i].path == paths[0]) { BeginEditAt(i); break; } }
 }
 
+// One-shot nearest-cell cleanup, also available when Stacks is enabled.
+void CleanUpGrid() {
+    ReadBlocked();
+    int C=Cols(),R=Rows();
+    std::set<std::pair<int,int>> taken;
+    for(auto& it:g_items)if(!Movable(it)&&it.col>=0)taken.insert({it.col,it.row});
+    struct Candidate{Item* it;float x,y;};
+    std::vector<Candidate> items;
+    for(auto& it:g_items)if(Movable(it)&&it.col>=0){
+        auto box=IconBox(it);items.push_back({&it,(box.left+box.right)/2,(box.top+box.bottom)/2});
+    }
+    std::stable_sort(items.begin(),items.end(),[](const auto&a,const auto&b){return a.x!=b.x?a.x>b.x:a.y<b.y;});
+    for(auto& q:items){
+        int bc=-1,br=-1;double best=1e30;
+        for(int c=0;c<C;c++)for(int row=0;row<R;row++){
+            if(Blocked(c,row)||taken.count({c,row}))continue;
+            auto box=CellRect(c,row);double dx=(box.left+box.right)/2-q.x,dy=box.top+(4+ICON/2)*Sc()-q.y;
+            double d=dx*dx+dy*dy;
+            if(d<best){best=d;bc=c;br=row;}
+        }
+        if(bc<0)continue;
+        q.it->col=bc;q.it->row=br;q.it->ox=q.it->oy=0;
+        taken.insert({bc,br});g_pos[q.it->key]={bc,br};g_off.erase(q.it->key);
+    }
+    SavePositions();Redraw();
+}
 void BackgroundMenu(HWND h, POINT screen) {
     enum { ID_NEW = 1, ID_INFO, ID_PASTE, ID_WALL, ID_CLEAN, ID_BY_NAME, ID_BY_KIND, ID_BY_DATE, ID_BY_SIZE, ID_MORE, ID_DISPLAY, ID_PERSONAL, ID_STACKS,
-           ID_SORT_NONE, ID_SORT_GRID, ID_WIDGETS, ID_ICONS };
+           ID_SORT_NONE, ID_SORT_GRID, ID_WIDGETS, ID_ICONS, ID_THEME_FOLDERS };
     bool canPaste = IsClipboardFormatAvailable(CF_HDROP) || IsClipboardFormatAvailable(RegisterClipboardFormatW(CFSTR_SHELLIDLIST));
     std::vector<ctxmenu::Item> items;
     auto add = [&](const wchar_t* t, int id, bool dis = false) { ctxmenu::Item i; i.label = t; i.id = id; i.disabled = dis; items.push_back(i); return &items.back(); };
@@ -1280,15 +1398,16 @@ void BackgroundMenu(HWND h, POINT screen) {
     sep();
     add(IconesOn() ? Tr(L"Ocultar Ícones da Mesa") : Tr(L"Mostrar Ícones na Mesa"), ID_ICONS);
     add(Tr(L"Usar Pilhas"), ID_STACKS)->checked = g_stacks;
-    if (!g_stacks) {  // como no Mac: Ordenar Por > Nenhum (solto) / Alinhar à Grade
+    add(TrPick(L"Pastas com tema",L"Themed Folder Icons"),ID_THEME_FOLDERS)->checked=shell::Setting(L"mesa_pastas_tema",L"1")==L"1";
+    {  // Keep organization commands available for unstacked items, even when Stacks is enabled.
         ctxmenu::Item sb; sb.label = Tr(L"Ordenar Por");
         ctxmenu::Item n1; n1.label = Tr(L"Nenhum"); n1.id = ID_SORT_NONE; n1.checked = Livre(); sb.sub.push_back(n1);
-        ctxmenu::Item n2; n2.label = Tr(L"Alinhar à Grade"); n2.id = ID_SORT_GRID; n2.checked = !Livre(); sb.sub.push_back(n2);
+        ctxmenu::Item n2; n2.label = TrPick(L"Alinhar à Grade", L"Snap to Grid"); n2.id = ID_SORT_GRID; n2.checked = !Livre(); sb.sub.push_back(n2);
         items.push_back(sb);
     }
-    if (!g_stacks) add(TrPick(L"Limpar", L"Clean Up"), ID_CLEAN);
-    if (!g_stacks) {
-        ctxmenu::Item by; by.label = Tr(L"Limpar Por");
+    add(TrPick(L"Limpar", L"Clean Up"), ID_CLEAN);
+    {
+        ctxmenu::Item by; by.label = TrPick(L"Limpar Por", L"Clean Up By");
         for (auto [t, id] : { std::pair{ Tr(L"Nome"), (int)ID_BY_NAME }, { Tr(L"Tipo"), (int)ID_BY_KIND }, { Tr(L"Data de Modificação"), (int)ID_BY_DATE }, { Tr(L"Tamanho"), (int)ID_BY_SIZE } }) {
             ctxmenu::Item s; s.label = t; s.id = id; by.sub.push_back(s);
         }
@@ -1297,9 +1416,8 @@ void BackgroundMenu(HWND h, POINT screen) {
     sep();
     // do menu da mesa do Explorador (sem ele, "Mais Opções" não traz estes dois)
     add(Tr(L"Configurações de Tela…"), ID_DISPLAY);
-    add(Tr(L"Personalizar…"), ID_PERSONAL);
     sep();
-    add(Tr(L"Mais Opções do Windows…"), ID_MORE);
+    add(TrPick(L"Mais opções...",L"Show More Options…"), ID_MORE);
     int id = ctxmenu::ShowItems(h, screen, items);
     Mon* p = Primary();
     POINT client{ screen.x - (p ? p->r.left : 0), screen.y - (p ? p->r.top : 0) };
@@ -1308,21 +1426,21 @@ void BackgroundMenu(HWND h, POINT screen) {
     case ID_INFO: ctxmenu::InvokeVerb(h, Parent(g_userDesk), { g_userDesk }, "properties"); break;
     case ID_PASTE: {
         int c, r; CellAt(client, c, r); g_dropHint = { c, r }; g_dropHintAt = GetTickCount();
-        ctxmenu::InvokeVerb(DonoOperacoes(), g_userDesk, {}, "paste");
+        if(!transferprogress::Paste(DonoOperacoes(),g_userDesk,ui::Dark()||liquid::Golden()).handled)ctxmenu::InvokeVerb(DonoOperacoes(), g_userDesk, {}, "paste");
         break;
     }
     case ID_WALL: shell::OpenSettings(L"fundo"); break;
     case ID_WIDGETS: widgets::EditMenu(screen); break;
-    case ID_ICONS: shell::SetSetting(L"mesa_icones", IconesOn() ? L"0" : L"1"); for (auto& it : g_items) it.sel = false; Redraw(); break;
+    case ID_ICONS: shell::SetSetting(palco::On()&&!revelar::DesktopShown()?L"palco_icones":L"mesa_icones", IconesOn() ? L"0" : L"1"); for (auto& it : g_items) it.sel = false; Redraw(); break;
     case ID_STACKS: SetStacks(!g_stacks); break;
+    case ID_THEME_FOLDERS: shell::SetSetting(L"mesa_pastas_tema",shell::Setting(L"mesa_pastas_tema",L"1")==L"1"?L"0":L"1"); ForgetIcons(); QueueIcons(); Redraw(); break;
     case ID_SORT_NONE: shell::SetSetting(L"mesa_grade", L"0"); Redraw(); break;
     case ID_SORT_GRID:  // encaixa todos nas casas (a mais perto de onde cada um está)
+        CleanUpGrid();
         shell::SetSetting(L"mesa_grade", L"1");
-        g_off.clear();
-        for (auto& it : g_items) it.ox = it.oy = 0;
-        Arrange(); SavePositions(); Redraw();
+        Redraw();
         break;
-    case ID_CLEAN: Arrange(true); Redraw(); break;
+    case ID_CLEAN: CleanUpGrid(); break;
     case ID_BY_NAME: case ID_BY_KIND: case ID_BY_DATE: case ID_BY_SIZE: {
         auto kind = [](const Item& i) { return i.dir ? std::wstring(L"") : Lower(PathFindExtensionW(i.path.c_str())); };
         auto size = [](const Item& i) -> ULONGLONG {
@@ -1346,6 +1464,7 @@ void BackgroundMenu(HWND h, POINT screen) {
 
 // ------------------------------------------------------------------ janela da mesa
 LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if(m==localkeys::Message()){if(localkeys::Accept(3,(UINT)w,(l&1)!=0,(l&2)!=0))return DeskProc(h,WM_KEYDOWN,w,0x574d0000|(l&1));return 0;}
     LRESULT res;
     if ((m == WM_INITMENUPOPUP || m == WM_DRAWITEM || m == WM_MEASUREITEM || m == WM_MENUCHAR) && ctxmenu::ForwardOwnerMsg(m, w, l, &res)) return res;
     Mon* mon = MonOf(h);
@@ -1400,11 +1519,23 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_MOUSEMOVE: {
         POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
         if (g_press >= 0 && (w & MK_LBUTTON) &&
-            (std::abs(p.x - g_pressPt.x) > GetSystemMetrics(SM_CXDRAG) || std::abs(p.y - g_pressPt.y) > GetSystemMetrics(SM_CYDRAG))) {
-            int i = g_press; g_press = -1;
-            ReleaseCapture();
-            if (!g_items[i].sel) g_items[i].sel = true;
-            StartDrag(i);
+            (g_localDrag || std::abs(p.x-g_pressPt.x)>GetSystemMetrics(SM_CXDRAG) || std::abs(p.y-g_pressPt.y)>GetSystemMetrics(SM_CYDRAG))) {
+            int i=g_press;
+            if(i>=(int)g_items.size()){g_press=-1;g_localDrag=false;ReleaseCapture();return 0;}
+            if(!g_items[i].sel)g_items[i].sel=true;
+            POINT screen=p;ClientToScreen(h,&screen);
+            HWND under=GetAncestor(WindowFromPoint(screen),GA_ROOT);
+            // External window or explicit Alt: use OLE for actual file transfers.
+            if(!Movable(g_items[i]) || (under && under!=h) || GetKeyState(VK_MENU)<0) {
+                g_press=-1;g_localDrag=false;g_dragAnchor=-1;ReleaseCapture();StartDrag(i);
+            } else {
+                if(!g_localDrag) {
+                    g_localDrag=true;g_dragAnchor=i;
+                    auto box=IconBox(g_items[i]);
+                    g_grab={g_pressPt.x-(LONG)box.left,g_pressPt.y-(LONG)box.top};
+                }
+                g_localPt=p;Redraw();
+            }
         } else if (g_band) {
             RECT antes{ std::min(g_bandA.x, g_bandB.x), std::min(g_bandA.y, g_bandB.y), std::max(g_bandA.x, g_bandB.x), std::max(g_bandA.y, g_bandB.y) };
             g_bandB = p;
@@ -1436,6 +1567,13 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_LBUTTONUP: {
+        if(g_localDrag){
+            POINT p{(short)LOWORD(l),(short)HIWORD(l)};
+            g_localDrag=false;g_press=-1;
+            Reposition(p);Log(L"mesa: internal icon reposition (no OLE)");g_dragAnchor=-1;g_grab={-1,-1};
+            if(GetCapture()==h)ReleaseCapture();
+            Redraw();return 0;
+        }
         if (GetCapture() == h) ReleaseCapture();
         // papel de parede animado: clique num lugar vazio (sem arrastar seleção) devolve o primeiro plano à mesa do
         // Windows. Com a nossa mesa (do tamanho da tela) na frente, o Lively achava que um app em tela cheia estava
@@ -1448,7 +1586,7 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         Redraw();
         return 0;
     }
-    case WM_CAPTURECHANGED: if (g_band) { g_band = false; Redraw(); } return 0;
+    case WM_CAPTURECHANGED: case WM_CANCELMODE: if(g_localDrag){g_localDrag=false;g_press=-1;g_dragAnchor=-1;g_grab={-1,-1};Redraw();} if (g_band) { g_band = false; Redraw(); } return 0;
     case WM_LBUTTONDBLCLK: {
         if (!primary) return 0;
         POINT p{ (short)LOWORD(l), (short)HIWORD(l) };
@@ -1483,7 +1621,7 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_KEYDOWN: {
         if (!primary) return 0;
-        bool ctrl = GetKeyState(VK_CONTROL) < 0, shift = GetKeyState(VK_SHIFT) < 0;
+        bool ctrl = (l&0xffff0000)==0x574d0000 || GetKeyState(VK_CONTROL)<0, shift = (l&0xffff0000)==0x574d0000 ? (l&1)!=0 : GetKeyState(VK_SHIFT)<0;
         auto sel = Selected();
         switch (w) {
         case VK_RETURN: OpenSelection(); return 0;
@@ -1494,7 +1632,7 @@ LRESULT CALLBACK DeskProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         case VK_ESCAPE: for (auto& it : g_items) it.sel = false; Redraw(); return 0;
         case 'A': if (ctrl) { for (auto& it : g_items) it.sel = true; Redraw(); } return 0;
         case 'C': case 'X': if (ctrl && !sel.empty()) { std::wstring f; auto ps = SelPaths(-1, &f); ctxmenu::InvokeVerb(h, f, ps, w == 'C' ? "copy" : "cut"); } return 0;
-        case 'V': if (ctrl) ctxmenu::InvokeVerb(DonoOperacoes(), g_userDesk, {}, "paste"); return 0;
+        case 'V': if (ctrl && !transferprogress::Paste(DonoOperacoes(),g_userDesk,ui::Dark()||liquid::Golden()).handled)ctxmenu::InvokeVerb(DonoOperacoes(), g_userDesk, {}, "paste"); return 0;
         case 'N': if (ctrl && shift) { POINT cl{ 0, 0 }; GetCursorPos(&cl); cl.x -= mon->r.left; cl.y -= mon->r.top; NewFolder(cl); } return 0;
         case 'I': if (ctrl && !sel.empty()) { std::wstring f; auto ps = SelPaths(-1, &f); ctxmenu::InvokeVerb(h, f, ps, "properties"); } return 0;
         }
@@ -2028,13 +2166,14 @@ void mesa::DepoisDoJogo() {
     if (g_rebuildLater && g_ctl) { g_rebuildLater = false; PostMessageW(g_ctl, WM_MS_REBUILD, 1, 0); }
 }
 
+void mesa::StageVisibilityChanged(){if(Primary())Redraw();}
 void mesa::SettingsChanged() {
     Log(L"mesa: ajustes mudaram (explorer=%ls)", shell::Setting(L"explorer", L"1").c_str());
     if (g_ctl) { g_closeTries = 0; Tick(); }
     { static int lastIcons = -1; int on = IconesOn() ? 1 : 0; if (lastIcons >= 0 && on != lastIcons && Primary()) Redraw(); lastIcons = on; }  // ícones ligados/desligados nos Ajustes
     if (LerMedidas() && Primary()) { ForgetIcons(); QueueIcons(); Redraw(); }  // tamanho do ícone, grade ou texto mudou
     {   // issue #48: trocou o tema: as pastas da mesa trocam junto
-        static int temaAntes = -1; int tema = liquid::Leopard() ? 2 : liquid::On() ? 1 : 0;
+        static int temaAntes = -1; int tema = (liquid::Leopard() ? 2 : liquid::Golden() ? 3 : liquid::On() ? 1 : 0) + (shell::Setting(L"mesa_pastas_tema",L"1")==L"1"?4:0);
         if (temaAntes >= 0 && tema != temaAntes && Primary()) { ForgetIcons(); QueueIcons(); Redraw(); }
         temaAntes = tema;
     }

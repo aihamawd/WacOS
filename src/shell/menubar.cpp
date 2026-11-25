@@ -1,3 +1,4 @@
+#include <functional>
 // Barra de menus no topo, como no macOS Sequoia: logo (menu do sistema), nome do app ativo em
 // negrito, menus do app; à direita os ícones de status (bandeja), rede, Spotlight, Central de
 // Controle e relógio. Ver docs/dock-e-barra-de-menus.md.
@@ -30,8 +31,11 @@ static const wchar_t* IconePC() { return shell::Setting(L"sobre_mac", L"pc") == 
 #include <thread>
 #include "../comum/idioma.h"
 #include "../comum/jogos.h"
+#include "barplugins.h"
 
 static void TiqueOcultar();  // ocultar a barra automaticamente (mais abaixo, fora do namespace)
+static bool PushWallpaper(HWND bar);
+static void PaintPushWallpaper(ID2D1RenderTarget* rt,HWND bar,float W,float H);
 namespace {
 
 const float BAR_PT_SEQUOIA = 26;  // altura da barra (telas sem entalhe; um pouco maior que os 24 pt do Mac, para telas grandes)
@@ -54,7 +58,7 @@ const float PAD_SEQUOIA = 10;     // espaço de cada lado de um ícone de status
 #define PAD (liquid::On() ? 8.f : PAD_SEQUOIA)
 
 bool g_overflow;  // macOS 27: algum ícone da bandeja não coube na barra (mostra a »)
-enum Kind { K_LOGO, K_APP, K_MENU, K_TRAY, K_NET, K_SPOT, K_CC, K_CLOCK, K_MORE, K_BATT, K_SOUND, K_BT, K_INPUT, K_SIRI, K_STATS };
+enum Kind { K_LOGO, K_APP, K_MENU, K_TRAY, K_NET, K_SPOT, K_CC, K_CLOCK, K_MORE, K_BATT, K_SOUND, K_BT, K_INPUT, K_SIRI, K_STATS, K_PLUGIN };
 struct Hit { D2D1_RECT_F r; Kind kind; int index; };
 
 HWND g_bar, g_owner;            // g_bar: a barra do monitor principal
@@ -340,6 +344,7 @@ struct Status {
     DWORD btAt = 0;
     std::wstring ssid;
     int cpu = -1, gpu = -1, ram = -1, disk = -1;  // issue #44: uso em % (-1 = não lido)
+    barplugins::Snapshot plugins;
 } g_st;
 
 // issue #44: o que a barra mostra do uso do sistema (bits: 1 CPU, 2 GPU, 4 memória, 8 disco). Quem decide é a
@@ -440,6 +445,7 @@ void LerStatus(Status& st) {
         if (f) BluetoothFindRadioClose(f);
     }
     LerUso(st);
+    st.plugins = barplugins::Read();
     // som: volume e mudo a cada segundo (barato, no objeto guardado); a saída padrão e se é um fone a cada 10 s
     bool fresh = false;
     if (g_audioStale.exchange(false)) audioAt = 0;
@@ -497,7 +503,7 @@ void PedeStatus() {
                     const Status& a = g_stLido;
                     mudou = a.wlan != st.wlan || a.wifiOn != st.wifiOn || a.wired != st.wired || a.batt != st.batt || a.charging != st.charging ||
                             a.pct != st.pct || a.bt != st.bt || a.sound != st.sound || a.muted != st.muted || a.phones != st.phones ||
-                            a.vol != st.vol || a.ssid != st.ssid || a.cpu != st.cpu || a.gpu != st.gpu || a.ram != st.ram || a.disk != st.disk;
+                            a.vol != st.vol || a.ssid != st.ssid || a.cpu != st.cpu || a.gpu != st.gpu || a.ram != st.ram || a.disk != st.disk || a.plugins.signature != st.plugins.signature;
                     g_stLido = st;
                 }
                 if (mudou && g_bar) PostMessageW(g_bar, WM_BARSTATUS, 0, 0);
@@ -539,6 +545,8 @@ std::wstring InputBadge(HKL hkl) {
     return L"?";
 }
 std::wstring LayoutName(HKL hkl) {
+    if(HIWORD((ULONG_PTR)hkl)==0xFA01&&LOWORD((ULONG_PTR)hkl)==0x0C01)return L"Arabic (MacBook)";
+    if(HIWORD((ULONG_PTR)hkl)==0x0401)return L"Arabic (101)";
     wchar_t name[LOCALE_NAME_MAX_LENGTH] = {}, disp[128] = {};
     LCIDToLocaleName(MAKELCID(LOWORD((ULONG_PTR)hkl), SORT_DEFAULT), name, LOCALE_NAME_MAX_LENGTH, 0);
     GetLocaleInfoEx(name, LOCALE_SLOCALIZEDDISPLAYNAME, disp, 128);
@@ -718,7 +726,61 @@ bool WallpaperTopDark(bool fallback) {
 // arquivo toda vez. Com o disco ocupado o GetFileAttributes segurou a interface 11 s (sentinela, 22/11/2026 20:49).
 // Agora a interface usa o último resultado e pede uma leitura nova no máximo a cada 4 s.
 bool LeTopoDoArquivo(bool fallback, float rgb[3]);
+std::wstring OrderKey(Kind k, int i) {
+    switch(k) {
+    case K_PLUGIN:
+        if(i>=0 && i<(int)g_st.plugins.items.size()) {
+            auto& item=g_st.plugins.items[i];
+            return L"plugin:"+item.source.filename().wstring()+L":"+item.id;
+        } break;
+    case K_TRAY:
+        if(i>=0 && i<(int)tray::icons.size()) return L"tray:"+TrayKey(tray::icons[i]);
+        break;
+    case K_STATS: return L"stat:"+std::to_wstring(i);
+    case K_SPOT: return L"spotlight";
+    case K_INPUT: return L"input";
+    case K_NET: return L"wifi";
+    case K_BATT: return L"battery";
+    case K_SOUND: return L"sound";
+    case K_BT: return L"bluetooth";
+    default: break;
+    }
+    return {};
+}
+// Store left-to-right order in the existing per-user settings. Escape delimiters.
+std::wstring EscapeOrderKey(const std::wstring& k) {
+    std::wstring out;
+    for(auto c:k) {
+        if(c==L'%'||c==L'|') { wchar_t buf[5]; swprintf_s(buf,L"%%%02X",(unsigned)c); out+=buf; }
+        else out+=c;
+    }
+    return out;
+}
+std::vector<std::wstring> BarOrder() {
+    std::vector<std::wstring> out;
+    auto s=shell::Setting(L"barra_ordem_widgets",L"");
+    size_t a=0;
+    while(a<s.size()) { auto b=s.find(L'|',a); if(b==std::wstring::npos)b=s.size(); if(b>a)out.push_back(s.substr(a,b-a)); a=b+1; }
+    return out;
+}
+void SaveBarOrder(const std::vector<std::wstring>& v) {
+    std::wstring s; for(auto& k:v) { if(!s.empty())s+=L"|"; s+=k; }
+    shell::SetSetting(L"barra_ordem_widgets",s);
+}
+struct BarDrag { HWND bar=nullptr; std::wstring key; float start=0; bool moved=false; std::vector<std::wstring> order; };
+BarDrag g_drag;
+std::vector<std::pair<float,std::wstring>> VisibleBarOrder(HWND bar) {
+    std::vector<std::pair<float,std::wstring>> v;
+    for(auto& h:g_state[bar].hits) {
+        auto k=OrderKey(h.kind,h.index);
+        if(!k.empty())v.emplace_back((h.r.left+h.r.right)/2,EscapeOrderKey(k));
+    }
+    std::sort(v.begin(),v.end());
+    return v;
+}
 void Render();
+
+
 bool WallpaperTopDarkFile(bool fallback) {
     static std::atomic<bool> rodando{ false };
     static DWORD quando = 0;
@@ -831,6 +893,7 @@ void Render() {
     D2D1_COLOR_F veil = dark ? D2D1::ColorF(0.06f, 0.06f, 0.07f, 0.18f) : D2D1::ColorF(1, 1, 1, 0.26f);
     if (liquid) veil.a = backdrop::Current().tinted ? veil.a : veil.a * 0.35f;
     if (!bgOn || leo) veil.a = 0;  // sem fundo (Tahoe): só o papel de parede atrás; Leopard: o degradê do Render é o fundo todo
+    if(PushWallpaper(bar))PaintPushWallpaper(rt,bar,W,H);
     rt->CreateSolidColorBrush(veil, &br);
     rt->FillRectangle(D2D1::RectF(0, 0, W, H), br);  // tinta leve por cima do acrílico
     if (leo) {
@@ -858,6 +921,16 @@ void Render() {
         float px = 1 / sc;
         br->SetColor(D2D1::ColorF(1, 1, 1, dark ? 0.08f : 0.18f));
         rt->FillRectangle(D2D1::RectF(0, H - px, W, H), br);
+    }
+    // Optional readability shadow, drawn behind text without introducing blur.
+    auto shadowMode=shell::Setting(L"barra_sombra_local",L"auto");
+    bool shadow=!leo&&!menubar::Embaixo()&&(shadowMode==L"1"||(shadowMode==L"auto"&&liquid&&!bgOn&&shell::Setting(L"barra_vidro",L"0")==L"0"));
+    if(shadow){
+        float a=dark?.20f:.10f;
+        D2D1_GRADIENT_STOP stops[]={{0,D2D1::ColorF(0,0,0,a)},{.55f,D2D1::ColorF(0,0,0,a*.70f)},{1,D2D1::ColorF(0,0,0,0)}};
+        ID2D1GradientStopCollection* gs=nullptr;ID2D1LinearGradientBrush* gb=nullptr;
+        if(SUCCEEDED(rt->CreateGradientStopCollection(stops,3,&gs))&&SUCCEEDED(rt->CreateLinearGradientBrush(D2D1::LinearGradientBrushProperties({0,0},{0,H}),gs,&gb)))rt->FillRectangle(D2D1::RectF(0,0,W,H),gb);
+        if(gb)gb->Release();if(gs)gs->Release();
     }
     g_hits.clear();
     // Embaixo, o meio da linha é do Dock: o que é da esquerda acaba em limE e o da direita começa em limD
@@ -942,10 +1015,6 @@ void Render() {
     };
     // Leopard (captura do 10.5): a lupa do Spotlight é o último item, na ponta direita, e o relógio vem antes dela;
     // (a Central de Controle continua, à esquerda do relógio: o usuário quer o acesso a ela)
-    if (leo && shell::Setting(L"barra_spotlight", L"1") == L"1") {
-        auto bx = slot(15, K_SPOT, 0);
-        if (!sym(L"magnifyingglass", bx, 15)) rt->DrawTextW(L"", 1, g_tfIcon, bx, br);
-    }
     {
         std::wstring t = ClockText();
         float w = ui::TextWidth(tfN, t) + 2 * PAD;
@@ -974,11 +1043,18 @@ void Render() {
         if (!sym(L"apple.intelligence", bx, 16)) rt->DrawEllipse(D2D1::Ellipse({ (bx.left + bx.right) / 2, H / 2 }, 6.5f, 6.5f), br, 1.6f);
     }
     { auto bx = slot(18, K_CC, 0); if (!sym(L"switch.2", bx, 14)) DrawCC(rt, br, (bx.left + bx.right) / 2, H / 2); }
-    if (!leo && shell::Setting(L"barra_spotlight", L"1") == L"1") {
+    // Queue movable widgets in default right-to-left order; render saved order after collection.
+    struct DrawWidget { std::wstring key; std::function<void()> draw; };
+    std::vector<DrawWidget> widgets;
+    auto enqueue=[&](Kind k,int i,std::function<void()> draw) {
+        auto key=EscapeOrderKey(OrderKey(k,i));
+        if(!key.empty())widgets.push_back({key,std::move(draw)});
+    };
+    if (shell::Setting(L"barra_spotlight", L"1") == L"1") enqueue(K_SPOT,0,[&]() {
         auto bx = slot(15, K_SPOT, 0);
         if (!sym(L"magnifyingglass", bx, 15)) rt->DrawTextW(L"", 1, g_tfIcon, bx, br);
-    }
-    if (shell::Setting(L"barra_teclado", L"1") == L"1") {  // fonte de entrada: a sigla num quadradinho (como o "A" do ABC)
+    });
+    if (shell::Setting(L"barra_teclado", L"1") == L"1") enqueue(K_INPUT,0,[&]() {  // fonte de entrada: a sigla num quadradinho (como o "A" do ABC)
         std::wstring t = InputBadge(g_st.hkl);
         float tw = std::max(15.f, ui::TextWidth(g_tfBadge, t) + 7);
         auto bx = slot(tw, K_INPUT, 0);
@@ -986,13 +1062,13 @@ void Render() {
         rt->FillRoundedRectangle(D2D1::RoundedRect(k, 3.5f, 3.5f), br);
         br->SetColor(dark ? D2D1::ColorF(0.13f, 0.13f, 0.14f) : D2D1::ColorF(0.96f, 0.96f, 0.96f));
         rt->DrawTextW(t.c_str(), (UINT32)t.size(), g_tfBadge, D2D1::RectF(k.left, k.top - 0.5f, k.right, k.bottom - 0.5f), br);
-    }
+    });
     // como no Mac: só quem tem Wi-Fi; no cabo, o Wi-Fi desconectado não aparece
-    if (g_st.wlan && (g_st.wifiOn || !g_st.wired) && shell::Setting(L"barra_wifi", L"1") == L"1") {
+    if (g_st.wlan && (g_st.wifiOn || !g_st.wired) && shell::Setting(L"barra_wifi", L"1") == L"1") enqueue(K_NET,0,[&]() {
         auto bx = slot(18, K_NET, 0);
         if (!sym(g_st.wifiOn ? L"wifi" : L"wifi.slash", bx, 14)) rt->DrawTextW(L"", 1, g_tfIcon, bx, br);
-    }
-    if (g_st.batt && shell::Setting(L"barra_bateria", L"1") == L"1") {
+    });
+    if (g_st.batt && shell::Setting(L"barra_bateria", L"1") == L"1") enqueue(K_BATT,0,[&]() {
         const wchar_t* name = g_st.charging ? L"battery.100percent.bolt" : g_st.pct > 87 ? L"battery.100percent" : g_st.pct > 62 ? L"battery.75percent"
                             : g_st.pct > 37 ? L"battery.50percent" : g_st.pct > 12 ? L"battery.25percent" : L"battery.0percent";
         if (liquid::Golden()) {
@@ -1025,15 +1101,15 @@ void Render() {
         auto bx = slot(27, K_BATT, 0);
         sym(name, bx, 13);
         }
-    }
+    });
     // Som e Bluetooth: no Mac ficam fora da barra por padrão (Ajustes > Central de Controle liga)
-    if (g_st.sound && shell::Setting(L"barra_som", L"0") == L"1") {
+    if (g_st.sound && shell::Setting(L"barra_som", L"0") == L"1") enqueue(K_SOUND,0,[&]() {
         const wchar_t* name = g_st.muted ? L"speaker.slash.fill" : g_st.phones ? L"headphones" : g_st.vol < 0.01f ? L"speaker.fill"
                             : g_st.vol < 0.34f ? L"speaker.wave.1.fill" : g_st.vol < 0.67f ? L"speaker.wave.2.fill" : L"speaker.wave.3.fill";
         auto bx = slot(g_st.phones ? 16 : 21, K_SOUND, 0);
         sym(name, bx, g_st.phones ? 16 : 14);
-    }
-    if (g_st.bt && shell::Setting(L"barra_bluetooth", L"0") == L"1") {  // o símbolo do Bluetooth do Mac (não está no SF Symbols público)
+    });
+    if (g_st.bt && shell::Setting(L"barra_bluetooth", L"0") == L"1") enqueue(K_BT,0,[&]() {  // o símbolo do Bluetooth do Mac (não está no SF Symbols público)
         auto bx = slot(9, K_BT, 0);
         float cx = (bx.left + bx.right) / 2, cy = H / 2, hh = 7.2f, ww = 3.9f;
         ID2D1PathGeometry* g = nullptr;
@@ -1048,37 +1124,63 @@ void Render() {
             if (st) st->Release();
             g->Release();
         }
-    }
-    // issue #44: uso do sistema, como os apps de monitor do Mac (Stats, iStat Menus): o nome pequeno em cima e a
-    // porcentagem embaixo, um ao lado do outro (CPU, GPU, memória, disco). Clique: Monitor de Atividade.
+    });
+    auto collectPlugins = [&](bool afterStats) {
+        for(int j=(int)g_st.plugins.items.size()-1;j>=0;--j) {
+            const auto& plugin=g_st.plugins.items[j];
+            if(plugin.afterStats!=afterStats)continue;
+            // Visibility is host-owned; never stop the provider or rewrite its snapshot.
+            if(plugin.source.filename()==L"metrics.wmp" &&
+                shell::Setting((L"barra_wmp_"+plugin.id).c_str(),L"1")==L"0")continue;
+            enqueue(K_PLUGIN,j,[&,j]() {
+                const auto& item=g_st.plugins.items[j];
+                static IDWriteTextFormat* tfTop=ui::Format(7.5f,DWRITE_FONT_WEIGHT_SEMI_BOLD,false,DWRITE_TEXT_ALIGNMENT_CENTER);
+                static IDWriteTextFormat* tfBottom=ui::Format(10.5f,DWRITE_FONT_WEIGHT_SEMI_BOLD,false,DWRITE_TEXT_ALIGNMENT_CENTER);
+                static IDWriteTextFormat* tfDual=ui::Format(9.f,DWRITE_FONT_WEIGHT_SEMI_BOLD,false,DWRITE_TEXT_ALIGNMENT_CENTER);
+                if(!tfTop||!tfBottom||!tfDual)return;
+                auto* top=item.dual?tfDual:tfTop;auto* bottom=item.dual?tfDual:tfBottom;
+                float w=std::clamp(std::max({ui::TextWidth(top,item.top)+4.f,ui::TextWidth(bottom,item.bottom)+4.f,item.minWidth}),30.f,130.f);
+                if(r-w-4<std::max(limD,leftEnd+120.f))return;
+                float edge=r-2,cy=H/2;
+                add(D2D1::RectF(r-w-4,0,r,H),K_PLUGIN,j);
+                br->SetColor(litNow?D2D1::ColorF(1,1,1):fgc);
+                rt->DrawTextW(item.top.c_str(),(UINT32)item.top.size(),top,D2D1::RectF(edge-w,cy-10.5f,edge,cy),br);
+                if(item.urgent)br->SetColor(dark||litNow?D2D1::ColorF(1,.28f,.25f):D2D1::ColorF(.78f,.035f,.08f));
+                rt->DrawTextW(item.bottom.c_str(),(UINT32)item.bottom.size(),bottom,D2D1::RectF(edge-w,cy-2.5f,edge,cy+11),br);
+                br->SetColor(litNow?D2D1::ColorF(1,1,1):fgc);
+                r-=w+4;
+            });
+        }
+    };
+    collectPlugins(true);
+    // Each native monitor is separately draggable; the existing click opens Activity Monitor.
     {
         struct Uso { const wchar_t* chave; const wchar_t* nome; int v; };
-        Uso usos[4] = { { L"barra_cpu", L"CPU", g_st.cpu }, { L"barra_gpu", L"GPU", g_st.gpu },
-                        { L"barra_memoria", L"MEM", g_st.ram }, { L"barra_disco", L"SSD", g_st.disk } };
-        int n = 0;
-        for (auto& u : usos) if (shell::Setting(u.chave, L"0") == L"1") n++;
-        if (n) {
-            static IDWriteTextFormat* tfNome = ui::Format(7.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
-            static IDWriteTextFormat* tfValor = ui::Format(10.5f, DWRITE_FONT_WEIGHT_SEMI_BOLD, false, DWRITE_TEXT_ALIGNMENT_CENTER);
-            const float cw = 30, gap = 4;
-            auto bx = slot(n * cw + (n - 1) * gap, K_STATS, 0);
-            float x = bx.left, cy = H / 2;
-            for (auto& u : usos) {
-                if (shell::Setting(u.chave, L"0") != L"1") continue;
-                wchar_t val[8];
-                if (u.v < 0) wcscpy_s(val, L"–"); else swprintf_s(val, L"%d%%", u.v);
-                std::wstring nome = Tr(u.nome);
-                if (tfNome) rt->DrawTextW(nome.c_str(), (UINT32)nome.size(), tfNome, D2D1::RectF(x - 4, cy - 10.5f, x + cw + 4, cy), br);
-                if (tfValor) rt->DrawTextW(val, (UINT32)wcslen(val), tfValor, D2D1::RectF(x - 4, cy - 2.5f, x + cw + 4, cy + 11), br);
-                x += cw + gap;
-            }
+        Uso usos[4]={{L"barra_cpu",L"CPU",g_st.cpu},{L"barra_gpu",L"GPU",g_st.gpu},{L"barra_memoria",L"MEM",g_st.ram},{L"barra_disco",L"SSD",g_st.disk}};
+        for(int i=3;i>=0;--i) {
+            auto u=usos[i]; if(shell::Setting(u.chave,L"0")!=L"1")continue;
+            enqueue(K_STATS,i,[&,u,i]() {
+                static IDWriteTextFormat* tfNome=ui::Format(7.5f,DWRITE_FONT_WEIGHT_SEMI_BOLD,false,DWRITE_TEXT_ALIGNMENT_CENTER);
+                static IDWriteTextFormat* tfValor=ui::Format(10.5f,DWRITE_FONT_WEIGHT_SEMI_BOLD,false,DWRITE_TEXT_ALIGNMENT_CENTER);
+                if(r-34<std::max(limD,leftEnd+120.f))return;
+                float edge=r-2,cy=H/2;add(D2D1::RectF(r-34,0,r,H),K_STATS,i);
+                br->SetColor(litNow?D2D1::ColorF(1,1,1):fgc);
+                wchar_t val[8];if(u.v<0)wcscpy_s(val,L"-");else swprintf_s(val,L"%d%%",u.v);
+                std::wstring nome=Tr(u.nome);
+                if(tfNome)rt->DrawTextW(nome.c_str(),(UINT32)nome.size(),tfNome,D2D1::RectF(edge-30,cy-10.5f,edge,cy),br);
+                if(tfValor)rt->DrawTextW(val,(UINT32)wcslen(val),tfValor,D2D1::RectF(edge-30,cy-2.5f,edge,cy+11),br);
+                r-=34;
+            });
         }
     }
+    collectPlugins(false);
     UINT px = (UINT)std::lround(17 * sc);
     for (int i = (int)tray::icons.size() - 1; i >= 0; i--) {
         auto& t = tray::icons[i];
         if (t.hidden || !t.icon || !IsShown(t) || tray::IsPrivacy(t)) continue;  // o do Windows: vira a bolinha
-        if (r - 37 < (limD > 0 ? limD + 34 : leftEnd + 60)) { g_overflow = true; break; }  // sem espaço: some, como no Mac (macOS 27: aparece a »)
+        enqueue(K_TRAY,i,[&,i]() {
+        auto& t=tray::icons[i];
+        if (r - 37 < (limD > 0 ? limD + 34 : leftEnd + 60)) { g_overflow = true; return; }  // sem espaço: some, como no Mac (macOS 27: aparece a »)
         auto bx = slot(17, K_TRAY, i);
         std::vector<BYTE> mono = IconPixels(t.icon, px);
         // como os ícones-modelo do Mac: uma cor só, a mesma do texto da barra (branco no escuro, preto no claro);
@@ -1113,6 +1215,21 @@ void Render() {
             float l0 = std::round(cxp - px / 2.f) / sc, t0 = std::round(cyp - px / 2.f) / sc;
             rt->DrawBitmap(bmp, D2D1::RectF(l0, t0, l0 + px / sc, t0 + px / sc), 1, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR);
             bmp->Release();
+        }
+        });
+    }
+    auto order=g_drag.bar&&g_drag.moved?g_drag.order:BarOrder();
+    // Unknown/new items retain default relative positions at the left.
+    std::stable_sort(widgets.begin(),widgets.end(),[&](const auto& a,const auto& b){
+        auto rank=[&](const std::wstring& k){auto i=std::find(order.begin(),order.end(),k);return i==order.end()?-1:(int)(i-order.begin());};
+        return rank(a.key)>rank(b.key);
+    });
+    for(auto& item:widgets)item.draw();
+    if(g_drag.bar==bar && !g_drag.key.empty()) {
+        for(auto& hit:g_hits) if(EscapeOrderKey(OrderKey(hit.kind,hit.index))==g_drag.key) {
+            br->SetColor(dark?D2D1::ColorF(1,1,1,.35f):D2D1::ColorF(0,0,0,.30f));
+            rt->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(hit.r.left+1,2,hit.r.right-1,H-2),4,4),br,1.2f);
+            break;
         }
     }
     bool anyHidden = false;
@@ -1398,6 +1515,10 @@ void ShowAt(int hit, const std::vector<ctxmenu::Item>& items, std::function<void
     POINT pt{ wr.left + (LONG)std::lround(g_hits[hit].r.left * sc), wr.bottom };
     // Tahoe (guia, seção 35): o menu abre 1 pt abaixo da barra e 4 pt à esquerda do título (o texto fica a 10 da caixa)
     if (liquid::On()) pt = { wr.left + (LONG)std::lround((g_hits[hit].r.left + 6) * sc), wr.bottom + (LONG)std::lround(sc) };
+    if (g_hits[hit].kind == K_PLUGIN) {
+        pt.x = wr.left + (LONG)std::lround((g_hits[hit].r.left + g_hits[hit].r.right) / 2 * sc);
+        ctxmenu::CenterNext();
+    }
     if (Cur() == g_bar && menubar::Embaixo()) {  // na linha do Dock os menus sobem, centrados no item
         pt = { wr.left + (LONG)std::lround((g_hits[hit].r.left + g_hits[hit].r.right) / 2 * sc), wr.top - (LONG)std::lround(4 * sc) };
         ctxmenu::AboveNext();
@@ -1487,6 +1608,29 @@ void Click(D2D1_POINT_2F p, bool right) {
     }
     case K_SPOT: spotlight::Toggle(); break;
     case K_SIRI: siri::Abrir(); break;
+    case K_PLUGIN: {
+        if (h.index < 0 || h.index >= (int)g_st.plugins.items.size()) break;
+        auto item = g_st.plugins.items[h.index];
+        std::vector<ctxmenu::Item> rows;
+        for (int j=0;j<(int)item.rows.size();++j) {
+            auto& row=item.rows[j];
+            if(row.kind==2) { rows.push_back(Sep()); continue; }
+            auto entry=I(row.label,row.kind==1?-2:row.action.empty()?-1:j+1,false,row.checked);
+            if(row.kind==0 && row.action.empty()) entry.shortcut=row.value;
+            if(row.group.empty()) rows.push_back(entry);
+            else {
+                auto it=std::find_if(rows.begin(),rows.end(),[&](auto& x){return x.label==row.group&&!x.sub.empty();});
+                if(it==rows.end()) { auto group=I(row.group,0); group.sub.push_back(entry); rows.push_back(group); }
+                else it->sub.push_back(entry);
+            }
+        }
+        if(rows.empty()) rows.push_back(I(item.top+L" "+item.bottom,0,true));
+        ctxmenu::PlainNext();
+        ShowAt(hit,rows,[item](int id) {
+            if(id>0&&id<=(int)item.rows.size()) barplugins::Select(item,item.rows[id-1].action);
+        });
+        break;
+    }
     case K_STATS: shell::OpenMonitor(); break;  // issue #44: o uso do sistema abre o Monitor de Atividade
     case K_NET: {
         std::wstring ssid = g_st.ssid.empty() ? Tr(L"Conectado") : g_st.ssid;  // sem a permissão de localização o nome não vem
@@ -1549,6 +1693,9 @@ void RenderIfChanged() {
     swprintf_s(b, L"|%d%d%d%d%d%d%d|%d|%d|%p|%d", g_st.wlan, g_st.wifiOn, g_st.batt, g_st.charging, g_st.bt, g_st.sound, g_st.muted,
                g_st.pct, (int)std::lround(g_st.vol * 3), (void*)g_st.hkl, g_st.phones);
     sig += b;
+    sig += g_st.plugins.signature;
+    for(const auto& item:g_st.plugins.items)if(item.source.filename()==L"metrics.wmp")
+        sig+=L"|"+item.id+L":"+shell::Setting((L"barra_wmp_"+item.id).c_str(),L"1");
     for (auto& t : tray::icons) { swprintf_s(b, L"|%p%d%d", (void*)t.icon, t.hidden, IsShown(t)); sig += b; }
     RECT rc; GetClientRect(g_bar, &rc);
     sig += std::to_wstring(rc.right) + L"x" + std::to_wstring(rc.bottom);
@@ -1629,7 +1776,7 @@ LRESULT CALLBACK VidroProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 void SyncVidro(HWND bar) {
     auto it = g_vidro.find(bar);
     HWND v = it != g_vidro.end() ? it->second : nullptr;
-    if (!GlassBarOn() || !IsWindow(bar) || !IsWindowVisible(bar)) {
+    if (PushWallpaper(bar) || !GlassBarOn() || !IsWindow(bar) || !IsWindowVisible(bar)) {
         if (v && IsWindowVisible(v)) ShowWindow(v, SW_HIDE);
         g_vidroUlt[bar].ok = false;
         return;
@@ -1674,8 +1821,32 @@ void DropVidro(HWND bar) {
 LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_PAINT: { PAINTSTRUCT ps; BeginPaint(h, &ps); EndPaint(h, &ps); HWND keep = g_cur; g_cur = h; Render(); g_cur = keep; return 0; }
+    case WM_LBUTTONUP:
+        if(g_drag.bar==h) {
+            auto drag=std::move(g_drag);g_drag={};
+            if(GetCapture()==h)ReleaseCapture();
+            if(drag.moved)SaveBarOrder(drag.order);
+            RenderAll();return 0;
+        }
+        break;
+    case WM_CAPTURECHANGED: case WM_CANCELMODE:
+        if(g_drag.bar==h){g_drag={};if(GetCapture()==h)ReleaseCapture();RenderAll();return 0;}
+        break;
     case WM_LBUTTONDOWN: case WM_RBUTTONUP: {
         float sc = ui::Scale(h);
+        if(m==WM_LBUTTONDOWN && (w&MK_CONTROL)) {
+            float x=(short)LOWORD(l)/sc;
+            for(auto& hit:g_state[h].hits) {
+                if(x<hit.r.left||x>=hit.r.right)continue;
+                auto key=OrderKey(hit.kind,hit.index);
+                if(key.empty())break; // fixed controls cannot move
+                auto visible=VisibleBarOrder(h);
+                g_drag={h,EscapeOrderKey(key),x,false,{}};
+                for(auto& v:visible)g_drag.order.push_back(v.second);
+                SetCapture(h);RenderAll();return 0;
+            }
+            return 0; // Ctrl-click never activates fixed controls
+        }
         HWND keep = g_cur;
         g_cur = h;  // os menus abrem embaixo da barra clicada (no monitor dela)
         Click({ (short)LOWORD(l) / sc, (short)HIWORD(l) / sc }, m == WM_RBUTTONUP);
@@ -1683,6 +1854,25 @@ LRESULT CALLBACK BarProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_MOUSEMOVE: {
+        if(g_drag.bar==h) {
+            float x=(short)LOWORD(l)/ui::Scale(h);
+            if(!g_drag.moved && std::abs(x-g_drag.start)<4)return 0;
+            g_drag.moved=true;
+            auto visible=VisibleBarOrder(h);
+            auto prev=g_drag.order;
+            g_drag.order.clear();
+            bool inserted=false;
+            for(auto& v:visible) {
+                if(v.second==g_drag.key)continue;
+                if(!inserted&&x<v.first){g_drag.order.push_back(g_drag.key);inserted=true;}
+                g_drag.order.push_back(v.second);
+            }
+            if(!inserted)g_drag.order.push_back(g_drag.key);
+            // Keep temporarily hidden widgets in the persisted ordering.
+            for(auto& k:BarOrder())if(std::find(g_drag.order.begin(),g_drag.order.end(),k)==g_drag.order.end())g_drag.order.insert(g_drag.order.begin(),k);
+            if(prev!=g_drag.order)RenderAll();
+            return 0;
+        }
         // issue #58: com um menu da barra aberto, passar o ponteiro por outro título abre o menu dele, como no Mac
         // (fecha o aberto e a barra recebe um clique no título novo depois que o laço do menu terminar)
         if (g_open < 0 || h != g_openBar || !ctxmenu::IsOpen() || g_open >= (int)g_hits.size()) return 0;
@@ -1764,18 +1954,66 @@ static HMONITOR g_fsMon;
 // some quando ele sai. Nunca em jogo (classe de motor, programa de jogo ou Direct3D exclusivo: a barra por cima tirava
 // o jogo da tela cheia) nem com a tela travada. barra_tela_cheia=0 volta a escondê-la de vez.
 static bool g_fsRevela;
+static bool g_nativeMaxReserve=false;
+static HWND g_pushWindow=nullptr;
+static DWORD g_pushAt=0;
+static int g_pushTries=0;
 // Ocultar e mostrar automaticamente (barra_ocultar=1, Ajustes > Central de Controle, como no Mac; issue #40): a barra não
 // reserva o topo (as janelas maximizadas vão até em cima) e só aparece com o ponteiro encostado no topo da tela; some
 // quando ele sai dela (e não há menu dela aberto). Com a barra na linha do Dock não vale.
 static bool g_revelada;
 static bool Ocultar() { return shell::Setting(L"barra_ocultar", L"0") == L"1" && !menubar::Embaixo(); }
+static bool PushWallpaper(HWND bar){
+    return g_nativeMaxReserve&&g_revelada&&bar==g_bar&&MonitorFromWindow(bar,MONITOR_DEFAULTTONEAREST)==g_fsMon;
+}
+static void PaintPushWallpaper(ID2D1RenderTarget* rt,HWND bar,float W,float H){
+    static void* key=nullptr;static std::vector<BYTE> strip;static int sw=0,sh=0;
+    int w=0,h=0;RECT screen{},br{};GetWindowRect(bar,&br);
+    std::vector<BYTE> px;
+    void* old=key;
+    if(mesa::Papel(key,w,h,screen,px)&&!px.empty()){
+        int x=br.left-screen.left,y=br.top-screen.top;
+        int ww=br.right-br.left,hh=br.bottom-br.top;
+        if(x>=0&&y>=0&&ww>0&&hh>0&&x+ww<=w&&y+hh<=h&&px.size()==(size_t)w*h*4){
+            strip.resize((size_t)ww*hh*4);
+            for(int i=0;i<hh;i++)memcpy(strip.data()+(size_t)i*ww*4,px.data()+((size_t)(y+i)*w+x)*4,(size_t)ww*4);
+            sw=ww;sh=hh;
+        }else{strip.clear();key=nullptr;}
+    }else if(old!=key){strip.clear();key=nullptr;}
+    if(!strip.empty())if(auto* bmp=ui::Bitmap(rt,sw,sh,strip)){
+        rt->DrawBitmap(bmp,D2D1::RectF(0,0,W,H));bmp->Release();
+    }
+}
+// Only adjust the visible top edge; leave horizontal and bottom geometry,
+// native maximize state and the DLL's saved restore rectangle untouched.
+void FitPushTop(HWND h,int target){
+    if(!h||!IsWindowVisible(h)||IsIconic(h)||(!IsZoomed(h)&&!GetPropW(h,L"MacJanelaAmpliada")))return;
+    RECT wr{},vis{};
+    if(!GetWindowRect(h,&wr))return;
+    if(FAILED(DwmGetWindowAttribute(h,DWMWA_EXTENDED_FRAME_BOUNDS,&vis,sizeof(vis))))vis=wr;
+    RECT box{};
+    if(GetPropW(h,L"MacJanela")&&GetWindowRgnBox(h,&box)!=ERROR&&box.right>box.left)vis.top=wr.top+box.top;
+    int dy=target-vis.top;
+    if(abs(dy)<=1||wr.bottom-wr.top-dy<120)return;
+    SetWindowPos(h,nullptr,wr.left,wr.top+dy,wr.right-wr.left,wr.bottom-wr.top-dy,SWP_NOZORDER|SWP_NOACTIVATE|SWP_NOOWNERZORDER|SWP_ASYNCWINDOWPOS);
+}
+void SchedulePush(){
+    g_pushAt=GetTickCount()+150;g_pushTries=2;
+    shell::NaInterface([]{shell::ApplyWorkArea();});
+}
+void TickPush(){
+    if(!g_pushWindow||!g_pushTries||(int)(GetTickCount()-g_pushAt)<0)return;
+    g_pushTries--;g_pushAt=GetTickCount()+300;
+    if(g_nativeMaxReserve&&g_fsMon)FitPushTop(g_pushWindow,shell::WorkAreaFor(g_fsMon).top);
+}
 static bool Escondida(HWND b, HMONITOR hm) {
     if (g_fsOn && (!g_fsMon || g_fsMon == hm)) return !(g_fsRevela && g_revelada);
     return Ocultar() && !g_revelada;
 }
 static void Revela(bool on) {
-    if (on == g_revelada) return;
+    bool changed=g_revelada!=on;
     g_revelada = on;
+    if(changed&&g_nativeMaxReserve)SchedulePush();
     std::vector<HWND> all{ g_bar };
     all.insert(all.end(), g_extras.begin(), g_extras.end());
     auto alheias = shell::AlheiasNoTopo();
@@ -1786,14 +2024,16 @@ static void Revela(bool on) {
         if (!hide) SetWindowPos(b, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
     }
     shell::DevolveAlheias(alheias);
+    if(changed&&g_nativeMaxReserve){Render();SyncVidro(g_bar);}
 }
 // ponteiro no topo de um monitor com barra por ~120 ms: mostra; fora dela (com folga) por ~400 ms: esconde
 static void TiqueOcultar() {
-    if (!Ocultar() && !(g_fsOn && g_fsRevela)) { Revela(true); KillTimer(g_bar, 2); return; }
+    TickPush();
+    if (!Ocultar() && !(g_fsOn && g_fsRevela)) { Revela(!g_fsOn); KillTimer(g_bar, 2); return; }
     POINT pt; if (!GetCursorPos(&pt)) return;
     HMONITOR hm = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi{ sizeof(mi) }; if (!GetMonitorInfoW(hm, &mi)) return;
-    bool temBarra = (mi.dwFlags & MONITORINFOF_PRIMARY) || !g_extras.empty();
+    bool temBarra = ((mi.dwFlags & MONITORINFOF_PRIMARY) || !g_extras.empty()) && (Ocultar()||!g_fsMon||hm==g_fsMon);
     static DWORD noTopo, fora;
     DWORD agora = GetTickCount();
     bool botao = GetAsyncKeyState(VK_LBUTTON) < 0 || GetAsyncKeyState(VK_RBUTTON) < 0;
@@ -1804,18 +2044,18 @@ static void TiqueOcultar() {
         if (agora - noTopo >= 120) { noTopo = 0; fora = 0; Revela(true); }
         return;
     }
-    bool perto = pt.y <= mi.rcMonitor.top + menubar::HeightOn(hm) + 12 || g_open >= 0 || ctxmenu::IsOpen();
+    bool perto = (temBarra && pt.y <= mi.rcMonitor.top + menubar::HeightOn(hm) + 12) || g_open >= 0 || ctxmenu::IsOpen() || g_drag.bar;
     if (perto) { fora = 0; return; }
     if (!fora) fora = agora;
     if (agora - fora >= 400) { fora = 0; Revela(false); }
 }
-void menubar::SetFullscreen(bool on, HMONITOR mon) {
+void menubar::SetFullscreen(bool on, HMONITOR mon, HWND foreground) {
     if (!g_bar) return;
     bool revela = false;
     if (on && mon && !bloqueio::Active() && shell::Setting(L"barra_tela_cheia", L"1") == L"1") {
         QUERY_USER_NOTIFICATION_STATE q{};
         bool d3d = SUCCEEDED(SHQueryUserNotificationState(&q)) && q == QUERY_USER_NOTIFICATION_STATE::QUNS_RUNNING_D3D_FULL_SCREEN;
-        HWND fg = GetForegroundWindow();
+        HWND fg = foreground ? foreground : GetForegroundWindow();
         wchar_t cls[64] = {}, path[MAX_PATH] = {};
         GetClassNameW(fg, cls, 64);
         DWORD pid = 0; GetWindowThreadProcessId(fg, &pid);
@@ -1824,8 +2064,23 @@ void menubar::SetFullscreen(bool on, HMONITOR mon) {
     }
     if (on && (!g_fsOn || g_fsMon != mon || revela != g_fsRevela)) g_revelada = false;  // entrou em tela cheia: começa escondida
     if (!on && g_fsOn && !Ocultar()) g_revelada = true;
+    bool reserve=on&&mon&&revela&&foreground&&!menubar::Embaixo()&&(IsZoomed(foreground)||GetPropW(foreground,L"MacJanelaAmpliada"));
+    HWND previous=g_pushWindow;
+    bool pushChanged=reserve!=g_nativeMaxReserve||(reserve&&(mon!=g_fsMon||foreground!=previous));
+    if(pushChanged&&previous&&previous!=foreground&&GetPropW(previous,L"MacJanelaAmpliada")){
+        HMONITOR pm=MonitorFromWindow(previous,MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi{sizeof(mi)};
+        if(GetMonitorInfoW(pm,&mi))FitPushTop(previous,mi.rcMonitor.top+menubar::HeightOn(pm));
+    }
+    g_pushWindow=reserve?foreground:nullptr;
+    bool changed=on!=g_fsOn||mon!=g_fsMon||revela!=g_fsRevela;
+    g_nativeMaxReserve=reserve;
     g_fsOn = on; g_fsMon = mon; g_fsRevela = revela;
-    if (revela) SetTimer(g_bar, 2, 50, nullptr);
+    if(changed){
+        if(revela||Ocultar())SetTimer(g_bar,2,50,nullptr);
+        else KillTimer(g_bar,2);
+    }
+    if(pushChanged){SchedulePush();g_pushAt=GetTickCount()+500;}
     std::vector<HWND> all{ g_bar };
     all.insert(all.end(), g_extras.begin(), g_extras.end());
     auto alheias = shell::AlheiasNoTopo();  // as "sempre por cima" de outros apps (issue #33) voltam por cima no fim
@@ -1882,6 +2137,7 @@ int menubar::ReservedOn(HMONITOR mon) {
     MONITORINFO mi{ sizeof(mi) };
     bool prim = GetMonitorInfoW(mon, &mi) && (mi.dwFlags & MONITORINFOF_PRIMARY);
     if (menubar::Embaixo()) return 0;  // o topo de todos os monitores volta para as janelas
+    if (g_nativeMaxReserve && mon==g_fsMon) return g_revelada ? HeightOn(mon) : 0;
     if (Ocultar()) return 0;  // ocultar automaticamente: o topo é das janelas, a barra aparece por cima
     if (prim) return Height();
     return AllMonitors() ? HeightOn(mon) : 0;
@@ -1960,12 +2216,9 @@ void menubar::Displays() {
         SetWindowPos(g_extras[i], HWND_TOPMOST, r.left, r.top, r.right - r.left, HeightOn(others[i].hm),
                      SWP_NOACTIVATE | (hide ? SWP_HIDEWINDOW : SWP_SHOWWINDOW));
     }
-    if (Ocultar()) { g_revelada = false; if (IsWindowVisible(g_bar)) ShowWindow(g_bar, SW_HIDE); for (HWND b : g_extras) ShowWindow(b, SW_HIDE); SetTimer(g_bar, 2, 50, nullptr); }
-    else {
-        KillTimer(g_bar, 2);
-        g_revelada = false;
-        if (!IsWindowVisible(g_bar) && !Escondida(g_bar, prim.hm)) ShowWindow(g_bar, SW_SHOWNOACTIVATE);
-    }
+    if(Ocultar()||(g_fsOn&&g_fsRevela))SetTimer(g_bar,2,50,nullptr);
+    else KillTimer(g_bar,2);
+    Revela(g_revelada);
     static size_t lastN = (size_t)-1;
     if (lastN != g_extras.size()) { lastN = g_extras.size(); Log(L"barra de menus: %zu monitor(es) a mais", lastN); }
     RenderAll();

@@ -1,4 +1,5 @@
-﻿// Dock no estilo do macOS Sequoia. Duas janelas: o fundo (acrílico arredondado) e, por cima, uma
+﻿#include "../comum/iconnorm.h"
+// Dock no estilo do macOS Sequoia. Duas janelas: o fundo (acrílico arredondado) e, por cima, uma
 // janela com alfa por pixel onde ficam os ícones (podem crescer para fora do fundo na ampliação;
 // onde não há nada desenhado, o clique passa). Ver docs/dock-e-barra-de-menus.md.
 #include "shell.h"
@@ -667,6 +668,7 @@ ID2D1Bitmap* LaunchpadProprio(ID2D1RenderTarget* rt) {
     bool ok = !f.empty() && ui::LoadPng(f, w, h, px);
     g_customIcon[L"launchpad:"] = ok;
     if (!ok) return nullptr;
+    if(!LEO_DOCK)iconnorm::Normalize(w,h,px,liquid::Golden()||ui::Dark(),true);
     std::wstring st = ui::IconStyle();
     if (st != L"padrao") ui::StyleIcon(w, h, px, st);
     ID2D1Bitmap* b = ui::Bitmap(rt, w, h, px);
@@ -686,6 +688,7 @@ ID2D1Bitmap* IconBitmap(ID2D1RenderTarget* rt, App& a) {
             bool ok = !f.empty() && ui::LoadPng(f, w, h, px);
             g_customIcon[a.id] = ok;
             if (ok) {
+                if(!LEO_DOCK&&!a.finder)iconnorm::Normalize(w,h,px,liquid::Golden()||ui::Dark(),true);
                 std::wstring st = ui::IconStyle();
                 if (st != L"padrao") ui::StyleIcon(w, h, px, st);
                 ID2D1Bitmap* b = ui::Bitmap(rt, w, h, px);
@@ -733,6 +736,21 @@ bool WindowOverDock() {
     // diálogos dela). Uma janela de trás encostando no Dock não o esconde mais; a mesa ou o WacOS na frente o mostram.
     HWND fg = GetForegroundWindow();
     HWND fgRoot = fg ? GetAncestor(fg, GA_ROOTOWNER) : nullptr;
+    auto picker=[](HWND h){
+        wchar_t cls[64]={};GetClassNameW(h,cls,64);
+        return !wcscmp(cls,L"ArquivosEscolher")||!wcscmp(cls,L"ArquivosJanela");
+    };
+    // Foreground file chooser takes precedence over its disabled owner or another app.
+    if(fg&&IsWindowVisible(fg)&&!IsIconic(fg)&&(picker(fg)||GetWindow(fg,GW_OWNER))){
+        wchar_t cls[64]={};GetClassNameW(fg,cls,64);
+        LONG_PTR ex=GetWindowLongPtrW(fg,GWL_EXSTYLE);
+        if(picker(fg)||(!(ex&(WS_EX_NOACTIVATE|WS_EX_TRANSPARENT|WS_EX_TOOLWINDOW))&&!apps::IsShellWindow(fg)&&!shell::Nossa(fg))){
+            RECT r{};if(FAILED(DwmGetWindowAttribute(fg,DWMWA_EXTENDED_FRAME_BOUNDS,&r,sizeof(r))))GetWindowRect(fg,&r);
+            RECT x{};if(IntersectRect(&x,&r,&dk))return true;
+            // Do not choose a different top-level app while this modal is foreground.
+            if(picker(fg))return false;
+        }
+    }
     // A mesa em foco (clicou na área de trabalho): o Dock aparece, como antes, a não ser que um app acabou de abrir.
     bool mesaNaFrente = false;
     if (fgRoot) { wchar_t cls[64] = {}; GetClassNameW(fgRoot, cls, 64); mesaNaFrente = mesa::IsDeskClass(cls); }
@@ -751,7 +769,7 @@ bool WindowOverDock() {
             App* a = apps::OfWindow(top);
             if (!a || !a->abertoEm || GetTickCount() - a->abertoEm > 15000) top = nullptr;
         }
-        if (top) fgRoot = GetAncestor(top, GA_ROOTOWNER);
+        if (top && !(fg&&GetWindow(fg,GW_OWNER))) fgRoot = GetAncestor(top, GA_ROOTOWNER);
         else if (mesaNaFrente) return false;
     }
     if (!fgRoot || apps::IsShellWindow(fgRoot) || shell::Nossa(fgRoot)) return false;

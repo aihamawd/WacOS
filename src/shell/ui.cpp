@@ -1,6 +1,7 @@
 // Desenho comum do shell: Direct2D numa DIB de 32 bits (como o menu de contexto), acrílico,
 // fontes e os ícones próprios (pasta azul do Arquivos, lixeira).
 #include "shell.h"
+#include "../comum/graphics-recovery-local.h"
 #include "../comum/fonte_cjk.h" // a reserva para coreano, japonês e chinês
 #include <shlobj.h>
 #include <shobjidl.h>
@@ -202,7 +203,7 @@ ID2D1DeviceContext* ui::GpuBegin(GpuSurface& s, int w, int h, float scale) {
         d.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
         HRESULT hr = fac->CreateSwapChainForComposition(g_d3d, &d, nullptr, &s.swap);
         fac->Release();
-        if (FAILED(hr)) { Log(L"erro: swap chain 0x%08X", (unsigned)hr); return nullptr; }
+        if (FAILED(hr)) { localgraphics::Report(hr); Log(L"erro: swap chain 0x%08X", (unsigned)hr); return nullptr; }
         g_dcomp->CreateTargetForHwnd(s.hwnd, TRUE, &s.target);
         g_dcomp->CreateVisual(&s.visual);
         s.visual->SetContent(s.swap);
@@ -227,8 +228,9 @@ ID2D1DeviceContext* ui::GpuBegin(GpuSurface& s, int w, int h, float scale) {
 
 void ui::GpuEnd(GpuSurface& s) {
     HRESULT hr = g_dc->EndDraw();
-    if (FAILED(hr)) Log(L"erro: EndDraw 0x%08X", (unsigned)hr);
-    s.swap->Present(0, 0);  // o ritmo vem do FrameClock (DwmFlush), não do Present
+    if (FAILED(hr)) {localgraphics::Report(hr);Log(L"erro: EndDraw 0x%08X", (unsigned)hr);}
+    HRESULT present=s.swap->Present(0, 0);
+    if(FAILED(present))localgraphics::Report(present);  // o ritmo vem do FrameClock (DwmFlush), não do Present
     g_dc->SetTarget(nullptr);
 }
 

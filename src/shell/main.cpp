@@ -1,7 +1,11 @@
-﻿// Shell.exe: barra de menus + Dock + bandeja no estilo do macOS Sequoia, por cima do Explorador.
+// Shell.exe: barra de menus + Dock + bandeja no estilo do macOS Sequoia, por cima do Explorador.
 // Enquanto roda, esconde a barra de tarefas do Windows e ajusta a área de trabalho; ao sair
 // (menu do logo → Sair do Shell, Ctrl+Alt+Shift+F12, ou erro), devolve tudo como estava.
 #include "shell.h"
+#include "../comum/mackeys-local.h"
+#include "../comum/graphics-recovery-local.h"
+#include <wtsapi32.h>
+#pragma comment(lib,"wtsapi32.lib")
 #include "../comum/simbolos.h"
 #include "../comum/ajustes_arquivo.h"
 #include "../menu/context_menu.h"
@@ -51,6 +55,56 @@ static RECT g_origWork;
 static std::vector<HWND> g_hiddenBars;
 static std::map<std::wstring, std::wstring> g_settings;
 static bool g_quitting;
+static std::mutex g_graphicsMx;
+static localgraphics::FaultWindow g_graphicsFaults;
+static ULONGLONG g_graphicsAttempt=0;
+void localgraphics::Report(HRESULT hr){
+    if(!Lost(hr))return;
+    std::lock_guard<std::mutex> lock(g_graphicsMx);
+    g_graphicsFaults.Note(hr,GetTickCount64());
+}
+static bool GraphicsSessionReady(){
+    if(bloqueio::Active())return false;
+    LPWSTR info=nullptr;DWORD bytes=0;
+    if(!WTSQuerySessionInformationW(WTS_CURRENT_SERVER_HANDLE,WTS_CURRENT_SESSION,WTSConnectState,&info,&bytes))return false;
+    bool active=bytes>=sizeof(WTS_CONNECTSTATE_CLASS)&&*(WTS_CONNECTSTATE_CLASS*)info==WTSActive;
+    WTSFreeMemory(info);
+    if(!active)return false;
+    HDESK d=OpenInputDesktop(0,FALSE,DESKTOP_READOBJECTS);
+    if(!d)return false;
+    wchar_t name[64]{};DWORD needed=0;
+    bool normal=GetUserObjectInformationW(d,UOI_NAME,name,sizeof(name),&needed)&&!_wcsicmp(name,L"Default");
+    CloseDesktop(d);
+    if(!normal)return false;
+    bool busy=false;
+    EnumWindows([](HWND h,LPARAM param)->BOOL{
+        if(!IsWindowVisible(h))return TRUE;
+        wchar_t cls[80]{};GetClassNameW(h,cls,80);
+        if(!wcscmp(cls,L"OperationStatusWindow")||!wcscmp(cls,L"ShellProgresso")||
+           !wcscmp(cls,L"WacOSFileOperationProgress")||!wcscmp(cls,L"ShellAlerta")||!wcscmp(cls,L"#32770")){
+            *reinterpret_cast<bool*>(param)=true;return FALSE;
+        }
+        return TRUE;
+    },reinterpret_cast<LPARAM>(&busy));
+    return !busy;
+}
+static const wchar_t* GraphicsRecoveryKey=L"Software\\WacOS\\DeviceLocalRecovery";
+static std::wstring GraphicsRecoveryValue(){
+    DWORD session=0;ProcessIdToSessionId(GetCurrentProcessId(),&session);
+    return L"GraphicsRestartTick-"+std::to_wstring(session);
+}
+static bool GraphicsRecoveryDue(){
+    if(g_quitting||shell::nativo)return false;
+    ULONGLONG now=GetTickCount64();
+    {std::lock_guard<std::mutex> lock(g_graphicsMx);if(!g_graphicsFaults.Due(now))return false;}
+    if(localgraphics::Cooldown(g_graphicsAttempt,now))return false;
+    ULONGLONG prev=0;DWORD cb=sizeof(prev);
+    RegGetValueW(HKEY_CURRENT_USER,GraphicsRecoveryKey,GraphicsRecoveryValue().c_str(),RRF_RT_REG_QWORD,nullptr,&prev,&cb);
+    if(localgraphics::Cooldown(prev,now)||!GraphicsSessionReady())return false;
+    if(ctxmenu::IsOpen()){ctxmenu::Close();return false;}
+    g_graphicsAttempt=now;
+    return true;
+}
 static bool g_crashed, g_sessionEnding;  // Restore() sem abrir o Explorador (o vigia ou o logoff cuidam)
 
 // ---- tecla Windows: sozinha abre o Launchpad; com outra tecla (Win+E, Win+D, Win+L...) segue para o
@@ -205,6 +259,14 @@ static LRESULT CALLBACK KeyHook(int code, WPARAM w, LPARAM l) {
                     return 1;
                 }
                 return CallNextHookEx(g_kbHook, code, w, l);
+            } else if (g_macKeys && g_winDown && down && GetAsyncKeyState(VK_CONTROL)>=0 &&
+                       localkeys::Accept(localkeys::Scope(GetForegroundWindow()),k->vkCode,GetAsyncKeyState(VK_SHIFT)<0,GetAsyncKeyState(VK_MENU)<0)) {
+                if(g_macKeyVk!=k->vkCode)PostMessageW(GetForegroundWindow(),localkeys::Message(),k->vkCode,
+                    (GetAsyncKeyState(VK_SHIFT)<0?1:0)|(GetAsyncKeyState(VK_MENU)<0?2:0));
+                g_macKeyVk=k->vkCode;g_winCombo=g_winEaten=true;return 1;
+            } else if (k->vkCode == VK_F3 && down && !g_winDown && GetAsyncKeyState(VK_CONTROL)>=0 &&
+                       GetAsyncKeyState(VK_MENU)>=0 && GetAsyncKeyState(VK_SHIFT)>=0 && localkeys::Scope(GetForegroundWindow())==3) {
+                PostMessageW(g_msg,WM_APP_MISSION,0,0);return 1;
             } else if (k->vkCode == VK_TAB && down && !g_winDown && GetAsyncKeyState(VK_MENU) < 0 && GetAsyncKeyState(VK_CONTROL) >= 0) {
                 // Alt+Tab: o seletor de apps do Mac no lugar do Alternar Tarefas do Windows. A tecla "muda"
                 // (0xE8) evita que o app da frente veja um Alt sozinho ao soltar e abra o menu dele
@@ -934,7 +996,7 @@ static bool IsFullscreen(HWND fg) {
     }
     wchar_t cls[64] = {}; GetClassNameW(fg, cls, 64);
     if (mesa::IsDeskClass(cls) || !wcscmp(cls, L"Shell_TrayWnd")) return false;
-    if (IsZoomed(fg) && (GetWindowLongW(fg, GWL_STYLE) & WS_CAPTION) == WS_CAPTION) return false;  // só maximizada
+    if (IsZoomed(fg) || GetPropW(fg,L"MacJanelaAmpliada")) return false;  // só maximizada
     MONITORINFO mi{ sizeof(mi) };
     if (!GetMonitorInfoW(MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST), &mi)) return false;
     RECT r; if (!GetWindowRect(fg, &r)) return false;
@@ -955,11 +1017,27 @@ bool shell::NaoIncomodar(HMONITOR mon) {
 
 // Com mais de um monitor, só some o que está no monitor do app em tela cheia (a barra daquele monitor; o Dock
 // se ele estiver lá). Tela travada: tudo some.
+// Maximize and green-button zoom are menu-bar presentation states, not
+// exclusive fullscreen: keep smart Dock and notification policy independent.
+static bool IsMenuMaximized(HWND h) {
+    if(!h||!IsWindowVisible(h)||IsIconic(h)||apps::IsShellWindow(h)||shell::Nossa(h))return false;
+    wchar_t cls[64]={};GetClassNameW(h,cls,64);
+    if(mesa::IsDeskClass(cls)||!wcscmp(cls,L"Shell_TrayWnd")||!wcscmp(cls,L"Shell_SecondaryTrayWnd"))return false;
+    if(GetWindowLongPtrW(h,GWL_EXSTYLE)&(WS_EX_TOOLWINDOW|WS_EX_NOACTIVATE))return false;
+    return IsZoomed(h)||GetPropW(h,L"MacJanelaAmpliada");
+}
 static void CheckFullscreen() {
     HWND fg = GetForegroundWindow();
     bool locked = bloqueio::Active();
+    // A menu opened from the revealed bar must not drop fullscreen state.
+    static HWND lastFull=nullptr;
+    wchar_t cls[64]={};GetClassNameW(fg,cls,64);
+    bool transient=!wcscmp(cls,L"ShellBarraDeMenus")||!wcscmp(cls,L"MenuTahoePopup")||!wcscmp(cls,L"MenuTestePopup")||!wcscmp(cls,L"ShellMenuMac");
+    if(transient&&(IsFullscreen(lastFull)||IsMenuMaximized(lastFull)))fg=lastFull;
     bool fs = !locked && IsFullscreen(fg);
-    HMONITOR fm = fs ? MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) : nullptr;
+    bool maxbar=!locked&&!fs&&IsMenuMaximized(fg)&&shell::Setting(L"barra_tela_cheia",L"1")==L"1";
+    lastFull=(fs||maxbar)?fg:nullptr;
+    HMONITOR fm = (fs||maxbar) ? MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST) : nullptr;
     {   // registro: quem fez o Dock e a barra de menus sumirem (uma vez por janela)
         static HWND visto;
         if (fs && fg != visto) {
@@ -970,7 +1048,7 @@ static void CheckFullscreen() {
         visto = fs ? fg : nullptr;
     }
     dock::SetFullscreen(locked || (fs && fm == dock::MonitorHandle()));
-    menubar::SetFullscreen(locked || fs, fm);
+    menubar::SetFullscreen(locked || fs || maxbar, fm, fg);
     ilha::SetFullscreen(locked);  // a ilha confere sozinha a tela cheia do monitor principal (jogo, vídeo, app)
 }
 
@@ -1024,13 +1102,20 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     static UINT openCC = RegisterWindowMessageW(L"ShellAbrirCentral");  // abre/fecha a Central de Controle de fora
     static UINT restart = RegisterWindowMessageW(L"ShellReiniciar");    // reiniciar: sai sem abrir o Explorador e abre o Shell de novo
     if (m == restart && restart) {
+        if(g_quitting||shell::nativo)return 0;
+        const bool graphicsRecovery=w==0x47505552;
         // o Shell novo abre já (no mesmo caminho: depois de compilar, é a versão nova) e espera este sair
         wchar_t exe[MAX_PATH]; GetModuleFileNameW(nullptr, exe, MAX_PATH);
         std::wstring dir = exe; dir = dir.substr(0, dir.find_last_of(L'\\'));
         std::wstring cmd = std::wstring(L"\"") + exe + L"\" --depois-de " + std::to_wstring(GetCurrentProcessId());
         STARTUPINFOW si{ sizeof(si) }; PROCESS_INFORMATION pi{};
         if (CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, FALSE, 0, nullptr, dir.c_str(), &si, &pi)) { CloseHandle(pi.hThread); CloseHandle(pi.hProcess); }
-        else Log(L"reiniciar: não abriu o Shell novo (%lu)", GetLastError());
+        else {Log(L"reiniciar: não abriu o Shell novo (%lu)", GetLastError());return 0;}
+        if(graphicsRecovery){
+            ULONGLONG now=GetTickCount64();
+            RegSetKeyValueW(HKEY_CURRENT_USER,GraphicsRecoveryKey,GraphicsRecoveryValue().c_str(),REG_QWORD,&now,sizeof(now));
+            Log(L"graphics recovery: restarting shell after sustained device/target loss");
+        }
         mesa::NoExplorerOnExit();
         tray::SemAvisoAoSair();
         janelas::ManterAoReiniciar();  // as janelas ficam com a barra do Mac (o Shell novo assume; ver janelas::Stop)
@@ -1250,6 +1335,7 @@ static LRESULT CALLBACK MsgProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         if (w == 7) { KillTimer(g_msg, 7); Changed(); return 0; }
         if (w == 1) {
+            if(GraphicsRecoveryDue()){PostMessageW(h,restart,0x47505552,0);return 0;}
             static int ticks;
             if (ticks++ % 60 == 0) AutoAppearance();
             Changed(); CheckFullscreen(); HideTaskbars(); shell::ApplyWorkArea(); if (shell::Setting(L"finder_reserva", L"1") == L"1") EnsureReserve(); EnsureScreenshot();
@@ -1476,7 +1562,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, PWSTR, int) {
     mesa::Start(hi, g_msg);  // ajuste explorer=0: a mesa é nossa e o explorer.exe sai (só Dock: a do Windows, mas o vigia fica)
     menus::Start();
     if (!soDock) dialogs::Start();
-    if (!soDock) janelas::Start();
+    if (!soDock && GetFileAttributesW(L"C:\\Users\\Public\\MacInjecao-desligada.txt")==INVALID_FILE_ATTRIBUTES) janelas::Start();
+    if (!soDock) barras::Start();  // Full Shell also needs external fallback for custom title bars.
     if (!soDock) encaixe::Start();  // arrastar até a borda: metade, quarto, preencher (com a prévia)
     if (!soDock) memoria::Start();  // pressão de memória, soneca de apps (App Nap), memória descartável
     if (!soDock) pastas::Start();  // janelas de pasta do Explorador viram o Finder

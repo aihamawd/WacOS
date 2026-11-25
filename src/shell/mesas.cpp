@@ -29,11 +29,41 @@ struct IVDMI : IUnknown {
     virtual HRESULT STDMETHODCALLTYPE GetDesktops(IObjectArray** arr) = 0;
     virtual HRESULT STDMETHODCALLTYPE GetAdjacentDesktop(IVD* from, int dir, IVD** d) = 0;
     virtual HRESULT STDMETHODCALLTYPE SwitchDesktop(IVD* d) = 0;
+};
+// Same IID, different ABI after SwitchDesktop on 23H2 versus 24H2.
+struct IVDMI23 : IVDMI {
+    virtual HRESULT STDMETHODCALLTYPE CreateDesktop(IVD** d) = 0;
+    virtual HRESULT STDMETHODCALLTYPE MoveDesktop(IVD* d,int index) = 0;
+    virtual HRESULT STDMETHODCALLTYPE RemoveDesktop(IVD* d,IVD* fallback) = 0;
+};
+struct IVDMI24 : IVDMI {
     virtual HRESULT STDMETHODCALLTYPE SwitchDesktopAndMoveForegroundView(IVD* d) = 0;
     virtual HRESULT STDMETHODCALLTYPE CreateDesktop(IVD** d) = 0;
-    virtual HRESULT STDMETHODCALLTYPE MoveDesktop(IVD* d, int index) = 0;
-    virtual HRESULT STDMETHODCALLTYPE RemoveDesktop(IVD* d, IVD* fallback) = 0;
+    virtual HRESULT STDMETHODCALLTYPE MoveDesktop(IVD* d,int index) = 0;
+    virtual HRESULT STDMETHODCALLTYPE RemoveDesktop(IVD* d,IVD* fallback) = 0;
 };
+int DesktopABI(){
+    wchar_t build[32]{};DWORD cb=sizeof(build),ubr=0,ub=sizeof(ubr);
+    const wchar_t* key=L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion";
+    if(RegGetValueW(HKEY_LOCAL_MACHINE,key,L"CurrentBuildNumber",RRF_RT_REG_SZ,nullptr,build,&cb)!=ERROR_SUCCESS)return 0;
+    RegGetValueW(HKEY_LOCAL_MACHINE,key,L"UBR",RRF_RT_REG_DWORD,nullptr,&ubr,&ub);
+    int b=_wtoi(build);
+    if((b==22631||b==22621)&&ubr>=3085)return 23;
+    if(b==26100||b==26200)return 24;
+    return 0;
+}
+HRESULT CreateGuarded(IVDMI* m,IVD** d){
+    int abi=DesktopABI();
+    __try {
+        return abi==23?static_cast<IVDMI23*>(m)->CreateDesktop(d):abi==24?static_cast<IVDMI24*>(m)->CreateDesktop(d):E_NOTIMPL;
+    } __except(EXCEPTION_EXECUTE_HANDLER){return E_UNEXPECTED;}
+}
+HRESULT RemoveGuarded(IVDMI* m,IVD* d,IVD* fallback){
+    int abi=DesktopABI();
+    __try {
+        return abi==23?static_cast<IVDMI23*>(m)->RemoveDesktop(d,fallback):abi==24?static_cast<IVDMI24*>(m)->RemoveDesktop(d,fallback):E_NOTIMPL;
+    } __except(EXCEPTION_EXECUTE_HANDLER){return E_UNEXPECTED;}
+}
 
 std::vector<GUID> RegistryIds() {
     std::vector<GUID> out;
@@ -47,6 +77,7 @@ std::vector<GUID> RegistryIds() {
 // a interface interna, conferida contra o registro; nullptr se não der para confiar nela
 IVDMI* Open(std::vector<IVD*>& desks) {
     desks.clear();
+    if(!DesktopABI())return nullptr;
     if (mesa::Standalone()) return nullptr;  // a interface é do Explorador: sem ele não há mesas virtuais
     IServiceProvider* sp = nullptr;
     if (FAILED(CoCreateInstance(CLSID_ImmersiveShell, nullptr, CLSCTX_LOCAL_SERVER, IID_PPV_ARGS(&sp))) || !sp) return nullptr;
@@ -111,7 +142,7 @@ bool mesas::Create() {
     IVDMI* m = Open(d);
     if (!m) return false;
     IVD* nd = nullptr;
-    bool ok = SUCCEEDED(m->CreateDesktop(&nd)) && nd;
+    bool ok = SUCCEEDED(CreateGuarded(m,&nd)) && nd;
     if (nd) nd->Release();
     Free(m, d);
     return ok;
@@ -158,7 +189,7 @@ bool mesas::Remove(int index) {
     bool ok = false;
     if (index >= 0 && index < (int)d.size() && d.size() > 1) {
         IVD* fallback = d[index > 0 ? index - 1 : 1];  // as janelas vão para a mesa vizinha, como no Mac
-        ok = SUCCEEDED(m->RemoveDesktop(d[index], fallback));
+        ok = SUCCEEDED(RemoveGuarded(m,d[index],fallback));
     }
     Free(m, d);
     return ok;

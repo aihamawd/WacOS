@@ -1,4 +1,4 @@
-﻿// Mission Control: as janelas da mesa atual espalhadas sem se sobrepor (miniaturas vivas do DWM,
+// Mission Control: as janelas da mesa atual espalhadas sem se sobrepor (miniaturas vivas do DWM,
 // perto de onde já estavam), a barra de Mesas no topo e o Dock por cima, como no macOS Sequoia.
 // As Mesas são as áreas de trabalho virtuais do Windows (trocar e criar com Win+Ctrl+setas/D).
 // Abrir e fechar são feitos pelo compositor do Windows (DirectComposition): o papel de parede e o
@@ -10,6 +10,8 @@
 #include <mutex>
 #include <dwmapi.h>
 #include <dcomp.h>
+#include <d2d1effects.h>
+#include <cmath>
 #include <shobjidl.h>
 #include <algorithm>
 #include "../comum/idioma.h"
@@ -70,6 +72,13 @@ const double FLY_MS = 380;
 struct Desk { std::wstring name; };
 std::vector<Desk> g_desks;
 int g_cur = 0;
+double g_insertAt=0; int g_insertIndex=-1;
+D2D1_RECT_F g_insertFrom{};
+constexpr float INSERT_MS=340.f;
+float InsertProgress(){
+    if(g_insertIndex<0||anim::reduceMotion)return 1.f;
+    return anim::EaseOut(std::clamp((float)((anim::Now()-g_insertAt)/INSERT_MS),0.f,1.f));
+}
 std::wstring g_appId, g_appName;  // Exposé do app: só as janelas deste app (vazio = Mission Control)
 bool g_appNext;  // ToggleApp pediu: a abertura que vem é o Exposé do app
 // a faixa de Mesas (no Exposé do app ela não existe; no Leopard também não: o Exposé do 10.5 só espalha as janelas)
@@ -335,13 +344,24 @@ D2D1_RECT_F DeskLabelRect(int i, float sc) {  // barra fina: nomes centralizados
     for (int k = 0; k < i; k++) x += ui::TextWidth(g_tfDesk, g_desks[k].name) + 28;
     return { x, 10, x + ui::TextWidth(g_tfDesk, g_desks[i].name) + 24, 38 };
 }
-D2D1_RECT_F DeskThumbRect(int i, float sc) {  // barra aberta: miniaturas das mesas
-    float tw = 180, th = tw * H() / W(), gap = 24;
-    float total = g_desks.size() * tw + (g_desks.size() - 1) * gap;
-    float x = W() / sc / 2 - total / 2 + i * (tw + gap);
-    return { x, 26, x + tw, 26 + th };
+// A single layout for painting, thumbnails, and hit testing.
+float DeskWidth(int count,float sc){
+    return std::clamp((W()/sc-148.f-24.f*std::max(0,count-1))/std::max(1,count),48.f,180.f);
+}
+D2D1_RECT_F DeskSlot(int i,int count,float sc){
+    float tw=DeskWidth(count,sc),th=tw*H()/W(),gap=24;
+    float total=count*tw+(count-1)*gap;
+    float x=W()/sc/2-total/2+i*(tw+gap);
+    return {x,26,x+tw,26+th};
 }
 D2D1_RECT_F PlusRect(float sc) { return { W() / sc - 58, 8, W() / sc - 18, 48 }; }
+D2D1_RECT_F DeskThumbRect(int i, float sc) {
+    int count=(int)g_desks.size();
+    auto target=DeskSlot(i,count,sc);
+    if(g_insertIndex<0||g_insertIndex!=count-1)return target;
+    float t=InsertProgress();
+    return Lerp(i==g_insertIndex?g_insertFrom:DeskSlot(i,count-1,sc),target,t);
+}
 D2D1_POINT_2F CloseCenter(int i, float sc) { D2D1_RECT_F r = DeskThumbRect(i, sc); return { r.left + 3, r.top + 3 }; }
 bool OverClose(int i, D2D1_POINT_2F d, float sc) {
     D2D1_POINT_2F c = CloseCenter(i, sc);
@@ -357,6 +377,33 @@ int HitDesk(D2D1_POINT_2F d, float sc) {  // barra aberta: miniatura (com o nome
 
 void PlaceX();
 
+// Mission Control is a full-width frosted strip, not a Liquid Glass lens.
+void SpacesMaterial(ID2D1DeviceContext* dc,ID2D1SolidColorBrush* br,float wd,float bh){
+    const auto& st=backdrop::Current();
+    const bool dark=ui::Dark();
+    auto r=D2D1::RectF(0,0,wd,bh);
+    dc->PushAxisAlignedClip(r,D2D1_ANTIALIAS_MODE_ALIASED);
+    bool blurred=false;
+    if(g_wall&&!st.reduce){
+        ID2D1Effect *wall=nullptr,*blur=nullptr;
+        if(SUCCEEDED(dc->CreateEffect(CLSID_D2D12DAffineTransform,&wall))&&
+           SUCCEEDED(dc->CreateEffect(CLSID_D2D1GaussianBlur,&blur))){
+            auto z=g_wall->GetSize();
+            float hd=H()/Sc(),k=std::max(wd/z.width,hd/z.height);
+            wall->SetInput(0,g_wall);
+            wall->SetValue(D2D1_2DAFFINETRANSFORM_PROP_TRANSFORM_MATRIX,D2D1::Matrix3x2F::Scale(k,k)*D2D1::Matrix3x2F::Translation((wd-z.width*k)/2,(hd-z.height*k)/2));
+            blur->SetInputEffect(0,wall);
+            blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION,48.f);
+            blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE,D2D1_BORDER_MODE_HARD);
+            dc->DrawImage(blur,D2D1::Point2F(0,0),r);
+            blurred=true;
+        }
+        if(blur)blur->Release();if(wall)wall->Release();
+    }
+    br->SetColor(dark?D2D1::ColorF(.12f,.13f,.15f,blurred?.42f:.97f):D2D1::ColorF(.84f,.87f,.90f,blurred?.48f:.97f));
+    dc->FillRectangle(r,br);
+    dc->PopAxisAlignedClip();
+}
 void Paint() {
     if (!g_wnd || !g_open) return;
     float sc = Sc();
@@ -374,7 +421,7 @@ void Paint() {
                        D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
     } else dc->Clear(D2D1::ColorF(0.08f, 0.12f, 0.28f, 1));
     ID2D1SolidColorBrush* br = nullptr;
-    dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, (liquid::Leopard() ? 0.45f : 0.22f) * dim), &br);  // Leopard: escurece mais (cinza, sem desfoque)
+    if(FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, (liquid::Leopard() ? 0.45f : 0.22f) * dim), &br))||!br){ui::GpuEnd(g_s);return;}  // Leopard: escurece mais (cinza, sem desfoque)
     if (!g_comp) dc->FillRectangle(D2D1::RectF(0, 0, Wd, Hd), br);
 
     if (!Bar()) {  // Exposé do app: o nome do app no alto, no lugar da faixa de Mesas
@@ -383,30 +430,43 @@ void Paint() {
         dc->PushLayer(lpa, la);
         br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f));
         if (!g_appId.empty()) dc->DrawTextW(g_appName.c_str(), (UINT32)g_appName.size(), g_tfDesk, D2D1::RectF(0, 18, Wd, 50), br);
-        dc->PopLayer(); la->Release();
+        dc->PopLayer(); if(la)la->Release();
         goto windows;
     }
     {
     // barra de Mesas
     float bar = BarNow();
     float bh = BarHeightPx(bar) / sc;
-    br->SetColor(D2D1::ColorF(0, 0, 0, (0.10f + 0.12f * bar) * dim));
-    dc->FillRectangle(D2D1::RectF(0, 0, Wd, bh), br);
+    if(liquid::On()){
+        float reveal=g_closing?1-Progress():anim::EaseOut(std::clamp((float)((anim::Now()-g_openAt)/ANIM_MS),0.f,1.f));
+        float dy=-(bh+2)*(1-reveal);
+        dc->SetTransform(D2D1::Matrix3x2F::Translation(0,dy));
+        SpacesMaterial(dc,br,Wd,bh);
+        dc->SetTransform(D2D1::Matrix3x2F::Identity());
+    }
+    else{
+        br->SetColor(D2D1::ColorF(0, 0, 0, (0.10f + 0.12f * bar) * dim));
+        dc->FillRectangle(D2D1::RectF(0, 0, Wd, bh), br);
+    }
+    if(liquid::On())dc->SetTransform(D2D1::Matrix3x2F::Translation(0,-(bh+2)*(1-(g_closing?1-Progress():anim::EaseOut(std::clamp((float)((anim::Now()-g_openAt)/ANIM_MS),0.f,1.f))))));
     D2D1_LAYER_PARAMETERS lp = D2D1::LayerParameters(D2D1::InfiniteRect(), nullptr, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), dim);
     ID2D1Layer* layer = nullptr;
     dc->CreateLayer(nullptr, &layer);
     dc->PushLayer(lp, layer);
+    const bool lightStrip=liquid::On()&&!ui::Dark();
+    const auto stripInk=[&](float a){return lightStrip?D2D1::ColorF(.12f,.14f,.17f,a):D2D1::ColorF(1,1,1,a);};
     if (bar < 0.5f) {
         float a = 1 - bar * 2;
         for (int i = 0; i < (int)g_desks.size(); i++) {
             D2D1_RECT_F r = DeskLabelRect(i, sc);
-            if (i == g_cur) { br->SetColor(D2D1::ColorF(1, 1, 1, 0.16f * a)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, 7, 7), br); }
-            br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f * a));
+            if (i == g_cur) { br->SetColor(stripInk(0.16f * a)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, 7, 7), br); }
+            br->SetColor(stripInk(.92f*a));
             dc->DrawTextW(g_desks[i].name.c_str(), (UINT32)g_desks[i].name.size(), g_tfDesk, r, br);
         }
     } else {
-        float a = bar * 2 - 1;
+        float stripAlpha = bar * 2 - 1;
         for (int i = 0; i < (int)g_desks.size(); i++) {
+            float a=stripAlpha*(i==g_insertIndex?InsertProgress():1.f);
             D2D1_RECT_F r = DeskThumbRect(i, sc);
             if (!g_deskWall) {  // a thread já leu o arquivo: vira bitmap aqui (contexto da GPU desta thread)
                 std::lock_guard<std::mutex> lk(g_deskMx);
@@ -425,15 +485,16 @@ void Paint() {
                 dc->PushLayer(D2D1::LayerParameters(D2D1::InfiniteRect(), rg, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1::IdentityMatrix(), a), l2);
                 dc->DrawBitmap(deskBmp, r, 1, D2D1_INTERPOLATION_MODE_LINEAR);
                 dc->PopLayer();
-                l2->Release(); rg->Release(); f->Release();
+                if(l2)l2->Release(); if(rg)rg->Release(); if(f)f->Release();
             }
             if (i == g_cur) {
-                br->SetColor(D2D1::ColorF(0.04f, 0.52f, 1, a));
-                dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 2.5f, r.top - 2.5f, r.right + 2.5f, r.bottom + 2.5f), 8, 8), br, 3);
+                br->SetColor(D2D1::ColorF(0.23f, 0.55f, 1, a));
+                dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(r.left - 2.5f, r.top - 2.5f, r.right + 2.5f, r.bottom + 2.5f), 8, 8), br, 3.f);
             }
-            br->SetColor(D2D1::ColorF(1, 1, 1, 0.92f * a));
+            br->SetColor(stripInk(.92f*a));
             dc->DrawTextW(g_desks[i].name.c_str(), (UINT32)g_desks[i].name.size(), g_tfDesk, D2D1::RectF(r.left - 20, r.bottom + 6, r.right + 20, r.bottom + 30), br);
         }
+        float a=stripAlpha;
         // X da Mesa sob o mouse (só com mais de uma): círculo escuro com borda clara
         if (g_hoverDesk >= 0 && g_hoverDesk < (int)g_desks.size() && g_desks.size() > 1 && !g_closing) {
             D2D1_POINT_2F c = CloseCenter(g_hoverDesk, sc);
@@ -449,15 +510,16 @@ void Paint() {
     }
     D2D1_RECT_F pr = PlusRect(sc);  // "+": nova mesa, numa caixa translúcida na barra aberta
     float px = (pr.left + pr.right) / 2, py = (pr.top + pr.bottom) / 2 + bar * 50;
-    if (bar > 0.01f) {
-        br->SetColor(D2D1::ColorF(1, 1, 1, 0.14f * bar));
-        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(px - 22, py - 22, px + 22, py + 22), 8, 8), br);
+    if (bar > 0.01f && !liquid::On()) {
+        auto button=D2D1::RectF(px-22,py-22,px+22,py+22);
+        br->SetColor(D2D1::ColorF(1,1,1,.14f*bar));dc->FillRoundedRectangle(D2D1::RoundedRect(button,8,8),br);
     }
-    br->SetColor(D2D1::ColorF(1, 1, 1, 0.85f));
+    br->SetColor(stripInk(.85f));
     dc->DrawLine({ px - 9, py }, { px + 9, py }, br, 2);
     dc->DrawLine({ px, py - 9 }, { px, py + 9 }, br, 2);
     dc->PopLayer();
-    layer->Release();
+    if(layer)layer->Release();
+    dc->SetTransform(D2D1::Matrix3x2F::Identity());
     }
 windows:
 
@@ -616,6 +678,7 @@ bool AttachSnap(Win& w, IDCompositionSurface* surf, UINT sw, UINT sh) {
 }
 
 bool SnapAll() {
+    if(g_wins.empty())return true; // never start an empty capture session
     double t0 = anim::Now();
     // todas de uma vez pela placa de vídeo; a que falhar, pela CPU
     std::vector<HWND> hs; std::vector<RECT> srcs;
@@ -753,7 +816,7 @@ void Finish() {
     for (auto& f : g_fly) DwmUnregisterThumbnail(f.th);
     g_fly.clear();
     g_drag = -1; g_dragging = false; g_dropDesk = -1;
-    g_open = g_closing = false;
+    g_open = g_closing = false; g_insertIndex=-1;
     ShowWindow(g_wnd, SW_HIDE);
     if (g_xWnd) ShowWindow(g_xWnd, SW_HIDE);
     g_xFor = nullptr; g_xHot = false;
@@ -886,7 +949,9 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         return 0;
     case WM_MC_FRAME: {
-        bool done = anim::Now() - g_animAt >= g_durMs + 20 && g_fly.empty();
+        bool insertionDone=InsertProgress()>=1.f;
+        if(insertionDone)g_insertIndex=-1;
+        bool done = anim::Now() - g_animAt >= g_durMs + 20 && g_fly.empty() && insertionDone;
         if (g_closing && done) { Paint(); Finish(); return 0; }
         Paint();
         if (done) ui::FrameClock(h, WM_MC_FRAME, false);
@@ -984,7 +1049,17 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (!Bar()) { int hit = HitWindow(p); Close(hit >= 0 ? g_wins[hit].h : nullptr); return 0; }  // Exposé do app: só janelas
         D2D1_RECT_F pr = PlusRect(sc);
         if (d.x >= pr.left - 6 && d.x < pr.right + 6 && d.y >= pr.top && d.y < pr.bottom + BarNow() * 50) {  // nova mesa
-            if (mesas::Create()) { LoadDesks(); Paint(); }  // como no Mac: cria e continua aqui
+            if(InsertProgress()<1.f)return 0;
+            Log(L"mission control: create requested, %zu desks",g_desks.size());
+            if (mesas::Create()) {
+                size_t old=g_desks.size(); LoadDesks();
+                if(g_desks.size()==old+1){
+                    g_insertAt=anim::Now();g_insertIndex=(int)old;
+                    auto plus=PlusRect(sc);float x=(plus.left+plus.right)/2,y=(plus.top+plus.bottom)/2+BarNow()*50;
+                    g_insertFrom={x-22,y-14,x+22,y+14};
+                }
+                Retarget(1); Paint(); Log(L"mission control: create returned, %zu desks",g_desks.size());
+            }  // como no Mac: cria e continua aqui
             else { Close(nullptr); WinCtrl('D'); }
             return 0;
         }
@@ -995,7 +1070,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     if (mesas::Remove(i)) {
                         Log(L"mission control: mesa %d fechada", i + 1);
                         if (cur) { Close(nullptr); return 0; }
-                        LoadDesks(); g_hoverDesk = -1; g_hoverX = false; Paint();
+                        g_insertIndex=-1; LoadDesks(); g_hoverDesk = -1; g_hoverX = false; Paint();
                     } else {  // sem a interface interna: vai até a mesa e fecha com Win+Ctrl+F4
                         int delta = i - g_cur;
                         Close(nullptr);
@@ -1025,7 +1100,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_RBUTTONUP: Close(nullptr); return 0;
     case WM_KEYDOWN:
         if (w == VK_ESCAPE) Close(nullptr);
-        if (w == VK_RETURN && g_hover >= 0) Close(g_wins[g_hover].h);
+        if (w == VK_RETURN && g_hover >= 0 && g_hover < (int)g_wins.size()) Close(g_wins[g_hover].h);
         return 0;
     case WM_ACTIVATE: if (LOWORD(w) == WA_INACTIVE && g_open && !g_closing) Close(nullptr); return 0;
     case WM_MOUSEACTIVATE: return MA_ACTIVATE;
@@ -1046,7 +1121,7 @@ void missioncontrol::Warm() {
     SystemParametersInfoW(SPI_GETDESKWALLPAPER, MAX_PATH, path, 0);
     double t0 = anim::Now();
     LoadDeskWall(path);
-    if (shell::Setting(L"mc_motor", L"composicao") == L"composicao" && CompInit()) {
+    if (shell::Setting(L"mc_motor", L"quadros") == L"composicao" && CompInit()) {
         std::wstring p = path;
         std::thread([p] {  // ler e decodificar o arquivo fora da interface; desenhar na superfície, nela
             SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN);
@@ -1127,12 +1202,12 @@ void missioncontrol::Toggle() {
     SystemParametersInfoW(SPI_GETDESKWALLPAPER, MAX_PATH, path, 0);
     if (g_wall) { g_wall->Release(); g_wall = nullptr; }
     LoadDeskWall(path);
-    g_comp = shell::Setting(L"mc_motor", L"composicao") == L"composicao" && CompInit();
-    if (!g_comp) {
+    g_comp = shell::Setting(L"mc_motor", L"quadros") == L"composicao" && CompInit();
+    if (!g_comp||liquid::On()) {
         UINT ww = 0, wh = 0; std::vector<BYTE> px;
         if (path[0] && ui::LoadPng(path, ww, wh, px)) g_wall = ui::Bitmap(ui::Gpu(), ww, wh, px);
     }
-    LoadDesks();
+    g_insertIndex=-1; LoadDesks();
     SetWindowPos(g_wnd, HWND_TOPMOST, g_mon.left, g_mon.top, (int)W(), (int)H(), SWP_NOACTIVATE);
     Collect();
     for (auto& w : g_wins) w.from = FrameF(w);
@@ -1166,5 +1241,5 @@ void missioncontrol::Toggle() {
     SetFocus(g_wnd);
     dock::Raise();
     if (!g_comp) ui::FrameClock(g_wnd, WM_MC_FRAME, true);
-    Log(L"mission control: %zu janelas, %zu mesas", g_wins.size(), g_desks.size());
+    Log(L"mission control: %zu janelas, %zu mesas; compositor=%d", g_wins.size(), g_desks.size(),(int)g_comp);
 }

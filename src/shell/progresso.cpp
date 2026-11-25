@@ -131,7 +131,7 @@ void RunCmd(IUIAutomation* uia, const Cmd& c) {
 // botões da barra de título da janela (sem id; o nome muda com o idioma do Windows)
 bool BotaoDaBarra(const std::wstring& id, const std::wstring& name) {
     if (!id.empty()) return false;
-    for (auto n : { L"Minimize", L"Maximize", L"Close", L"Restore", L"Minimizar", L"Maximizar", L"Fechar", L"Restaurar" }) if (name == n) return true;
+    for (auto n : { L"Minimize", L"Maximize", L"Minimise", L"Maximise", L"Close", L"Restore", L"Minimizar", L"Maximizar", L"Fechar", L"Restaurar" }) if (_wcsicmp(name.c_str(),n)==0) return true;
     return false;
 }
 
@@ -296,7 +296,7 @@ bool ProgressTitle(HWND h) {
     wchar_t t[128] = {}; GetWindowTextW(h, t, 128);
     std::wstring s = t;
     if (s.empty() || s.find(L'%') != std::wstring::npos) return true;
-    for (auto p : { L"Progress", L"Progresso", L"Calculating", L"Calculando", L"Preparing", L"Preparando", L"Discovering", L"Descobrindo" })
+    for (auto p : { L"Progress", L"Progresso", L"Calculating", L"Calculando", L"Preparing", L"Preparando", L"Discovering", L"Discovered", L"Descobrindo" })
         if (Starts(s, p)) return true;
     return false;
 }
@@ -670,7 +670,7 @@ void OnSnap(std::vector<WinSnap>* snap) {
                 continue;
             }
             if (it->second == 0) { ShowOriginal(s.h, false); continue; }  // já desistimos dela
-        } else if (semBlocos.count(s.h) && semBlocos[s.h] != 0) semBlocos.erase(s.h);
+        } else semBlocos.erase(s.h);
         if (s.interrupted) ShowOriginal(s.h, true);  // pergunta: responde na janela do Windows
         else HideOriginal(s.h);
         for (auto& t : s.tiles) {

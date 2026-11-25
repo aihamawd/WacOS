@@ -114,7 +114,7 @@ bool EmptySpot(POINT pt) {
 }
 
 bool Wanted(HWND h, IVirtualDesktopManager* vdm) {
-    if (!IsWindowVisible(h) || IsIconic(h) || apps::IsShellWindow(h)) return false;
+    if (!IsWindowVisible(h) || IsIconic(h) || apps::IsShellWindow(h) || palco::Estacionada(h)) return false;
     LONG ex = GetWindowLongW(h, GWL_EXSTYLE);
     if ((ex & WS_EX_TOOLWINDOW) && !(ex & WS_EX_APPWINDOW)) return false;
     if (ex & WS_EX_TOPMOST) return false;
@@ -359,6 +359,7 @@ void Step() {
         ui::FrameClock(g_wnd, WM_RV_FRAME, false);
         if (back) {
             g_revealed = false;
+            if(palco::On()){mesa::StageVisibilityChanged();widgets::StageVisibilityChanged();}
             if (!g_moved.empty() && IsWindow(g_moved.front().h)) {  // a que estava na frente volta a ter o foco
                 shell::LiberaFrente(); SetForegroundWindow(g_moved.front().h);
             }
@@ -399,8 +400,12 @@ void Reveal() {
         OffsetRect(&m.to, nx - left - m.from.left, 0);
         g_moved.push_back(m);
     }
-    if (g_moved.empty()) return;
+    if(g_moved.empty()){
+        if(palco::On()){g_revealed=true;g_animAt=GetTickCount();mesa::StageVisibilityChanged();widgets::StageVisibilityChanged();}
+        return;
+    }
     g_revealed = true;
+    if(palco::On()){mesa::StageVisibilityChanged();widgets::StageVisibilityChanged();}
     g_fromK = 0;
     ShowOverlay(0);
     g_phase = P_OUT;
@@ -414,6 +419,7 @@ void Reveal() {
 
 void Restore() {
     if (!g_revealed || g_phase == P_BACK || g_phase == P_SETTLE_BACK) return;
+    if(g_moved.empty()){g_revealed=false;mesa::StageVisibilityChanged();widgets::StageVisibilityChanged();return;}
     float k = 1;
     if (g_phase == P_OUT) k = Lerp(g_fromK, 1, Progress());  // ainda saindo: volta de onde está
     else if (g_phase == P_IDLE || g_phase == P_SETTLE_OUT) {
@@ -534,6 +540,7 @@ void revelar::Foreground(HWND h) {
     Restore();
 }
 
+bool revelar::DesktopShown(){return g_revealed;}
 bool revelar::Owns(HWND h) {
     if (!g_revealed) return false;
     for (auto& m : g_moved) if (m.h == h && m.minimized) return true;

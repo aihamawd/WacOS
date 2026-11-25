@@ -20,13 +20,21 @@
 #include <map>
 #include <set>
 #include <cstdio>
+#include <thread>
+#include <mutex>
+#include <memory>
+#include <atomic>
 #include <shlobj.h>
 #include "../comum/idioma.h"
 
 namespace {
 
-const UINT_PTR T_FRENTE = 1, T_REFRESH = 2, T_BORDA = 3, T_LOGO = 4;
-const float STRIP_W = 190, THUMB_W = 138, THUMB_H = 92, ICON = 30, GAP = 26, LEFT = 10;
+const UINT_PTR T_FRENTE = 1, T_REFRESH = 2, T_BORDA = 3, T_LOGO = 4, T_CAPTURE=5, T_RESULT=6;
+// Reference silhouette (macOS screenshot, normalized to 800px high):
+// near edge ~80px, projected width ~90px, icon ~26px, near edge x~14px.
+// Keep the underlying app's aspect ratio and apply yaw before fitting.
+const float STRIP_W = 190, THUMB_W = 94, THUMB_H = 80, ICON = 26, GAP = 26, LEFT = 14;
+constexpr float STAGE_FAR_SCALE=.89f, STAGE_YAW_WIDTH=.59f;
 const int MAX_TILES = 6;
 const DWORD ASSENTAR_MS = 1000;   // depois de uma troca, o palco não é "podado" nem estaciona nada (stage.SettleTime)
 const DWORD NOVA_MS = 1500;       // janela vista há pouco não é estacionada (ela pode estar abrindo para virar a da frente)
@@ -67,6 +75,7 @@ std::wstring CaminhoDo(DWORD pid) {
 
 // o app da janela: o exe do processo; nas da Loja (ApplicationFrameHost), o processo da CoreWindow de dentro
 std::wstring AppDe(HWND h, const std::wstring& cls, DWORD pid) {
+    if(cls==L"ConsoleWindowClass")return L"CONSOLE:"+std::to_wstring(pid)+L":"+std::to_wstring((UINT_PTR)h);
     if (cls == L"ApplicationFrameWindow") {
         struct C { DWORD pid, achado; } c{ pid, 0 };
         EnumChildWindows(h, [](HWND ch, LPARAM l) -> BOOL {
@@ -95,12 +104,16 @@ bool JanelaDeApp(HWND h, HWND fg, Jan* out) {
     LONG ex = GetWindowLongW(h, GWL_EXSTYLE);
     bool appWin = (ex & WS_EX_APPWINDOW) != 0;
     if ((ex & WS_EX_TOOLWINDOW) && !appWin) return false;
-    if (((ex & WS_EX_NOACTIVATE) && !appWin) || (ex & WS_EX_TOPMOST)) return false;  // sobreposições e "sempre por cima" flutuam
+    if (((ex & WS_EX_NOACTIVATE) && !appWin) || (ex & (WS_EX_TOPMOST|WS_EX_TRANSPARENT))) return false;  // sobreposições e "sempre por cima" flutuam
     if (Encoberta(h)) return false;
     std::wstring cls = Classe(h);
     static const std::set<std::wstring> fora = { L"Progman", L"WorkerW", L"Shell_TrayWnd", L"Shell_SecondaryTrayWnd", L"Windows.UI.Core.CoreWindow",
                                                  L"Windows.UI.Composition.DesktopWindowContentBridge", L"XamlExplorerHostIslandWindow" };
-    if (fora.count(cls)) return false;
+    if (fora.count(cls) || cls==L"CEF-OSC-WIDGET" || cls==L"OperationStatusWindow" ||
+        cls==L"WacOSFileOperationProgress" || cls==L"ShellAlerta") return false;
+    // Ignore non-interactive overlays and auxiliary windows in the same way
+    // the Dock and Alt+Tab do; owned dialogues still travel with their root.
+    if(!apps::IsAppWindow(h))return false;
     wchar_t t[8] = {};
     if (!GetWindowTextW(h, t, 8)) return false;  // sem título: não é janela de app
     RECT fr = Moldura(h);
@@ -188,7 +201,95 @@ const UINT MOVER = SWP_NOREDRAW | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | S
 const UINT VOLTAR = MOVER | SWP_FRAMECHANGED;
 const LONG FOLGA = 160;
 
-struct Vaga { RECT casa; POINT lugar; HWND dono; DWORD em; };
+struct Vaga { RECT casa; POINT lugar; HWND dono; DWORD em; unsigned retries=0; bool confirmed=false; };
+std::set<HWND> g_unparkable;
+std::map<HWND,ID2D1Bitmap*> g_previews;
+unsigned long long g_previewRevision=0;
+std::wstring g_lastPaint;
+void DropPreview(HWND h){
+    auto it=g_previews.find(h);if(it!=g_previews.end()){if(it->second)it->second->Release();g_previews.erase(it);++g_previewRevision;}
+}
+// Inverse projective resampling into premultiplied BGRA. The left edge
+// remains full height; the far right edge recedes. Cache once,
+// then draw as an ordinary bitmap, independent of compositor projection.
+std::vector<BYTE> StagePerspective(const std::vector<BYTE>& src,UINT w,UINT h){
+    std::vector<BYTE> dst((size_t)w*h*4,0);
+    const float p=1.f/STAGE_FAR_SCALE-1.f;
+    // Native-style inactive card translucency. Preserve detail at the near
+    // edge and let the wallpaper show through progressively at the far edge.
+    // The same factor is applied to alpha AND premultiplied color channels;
+    // no halo, cast shadow or extra draw pass is needed.
+    for(UINT x=0;x<w;x++){
+        float u=(x+.5f)/w;
+        float fade=.94f-.20f*(u*u*(3.f-2.f*u));
+        float sx=u/(1.f+p-p*u);
+        float scale=1.f/(1.f+p*sx);
+        float fx=std::clamp(sx*w-.5f,0.f,(float)w-1);
+        UINT ax=(UINT)fx,bx=std::min(ax+1,w-1);float tx=fx-ax;
+        float top=h*(1.f-scale)*.5f,bottom=h-top;
+        for(UINT y=0;y<h;y++){
+            float cover=std::clamp(std::min((y+1.f)-top,bottom-y),0.f,1.f);
+            if(cover<=0)continue;
+            float edge=std::clamp(std::min(y+.5f-top,bottom-y-.5f)/(std::max(1.f,h*.035f)),0.f,1.f);
+            float opacity=cover*fade*(.975f+.025f*edge);
+            float fy=std::clamp(((y+.5f-top)/scale)-.5f,0.f,(float)h-1);
+            UINT ay=(UINT)fy,by=std::min(ay+1,h-1);float ty=fy-ay;
+            BYTE* o=dst.data()+((size_t)y*w+x)*4;
+            for(int c=0;c<4;c++){
+                float a=src[((size_t)ay*w+ax)*4+c]*(1-tx)+src[((size_t)ay*w+bx)*4+c]*tx;
+                float b=src[((size_t)by*w+ax)*4+c]*(1-tx)+src[((size_t)by*w+bx)*4+c]*tx;
+                o[c]=(BYTE)std::lround((a*(1-ty)+b*ty)*opacity);
+            }
+        }
+    }
+    return dst;
+}
+struct CaptureJob {
+    HWND h{};DWORD pid{};RECT src{};UINT w=0,hh=0;
+    std::vector<BYTE> pixels;std::atomic<bool> done{false};
+};
+std::map<HWND,std::shared_ptr<CaptureJob>> g_jobs;
+std::map<HWND,DWORD> g_captureAt,g_pendingPark;
+auto& CaptureWorkers(){static auto* count=new std::atomic<int>(0);return *count;}
+void CapturePreview(HWND h){
+    if(!IsWindow(h)||IsHungAppWindow(h)||g_jobs.count(h)||CaptureWorkers().load()>=2)return;
+    DWORD now=Agora();auto last=g_captureAt.find(h);
+    if(last!=g_captureAt.end()&&now-last->second<1200)return;
+    RECT r{},f{};GetWindowRect(h,&r);f=Moldura(h);
+    RECT src{f.left-r.left,f.top-r.top,f.right-r.left,f.bottom-r.top};
+    if(src.right-src.left<4||src.bottom-src.top<4||src.right-src.left>4096||src.bottom-src.top>4096)return;
+    auto job=std::make_shared<CaptureJob>();job->h=h;job->src=src;
+    GetWindowThreadProcessId(h,&job->pid);
+    g_captureAt[h]=now;g_jobs[h]=job;++CaptureWorkers();
+    try{
+        std::thread([job]{
+            HRESULT hr=CoInitializeEx(nullptr,COINIT_MULTITHREADED);
+            try{
+                std::vector<BYTE> px;
+                if(foto::StagePixels(job->h,job->src,px,job->w,job->hh)&&job->w&&job->hh&&
+                   px.size()==(size_t)job->w*job->hh*4)
+                    job->pixels=StagePerspective(px,job->w,job->hh);
+            }catch(...){}
+            if(SUCCEEDED(hr))CoUninitialize();
+            job->done.store(true,std::memory_order_release);--CaptureWorkers();
+        }).detach();
+    }catch(...){--CaptureWorkers();g_jobs.erase(h);}
+}
+bool CollectPreviews(){
+    bool changed=false;
+    for(auto it=g_jobs.begin();it!=g_jobs.end();){
+        auto j=it->second;if(!j->done.load(std::memory_order_acquire)){++it;continue;}
+        DWORD pid=0;GetWindowThreadProcessId(j->h,&pid);
+        if(IsWindow(j->h)&&pid==j->pid&&!j->pixels.empty()){
+            if(auto* dc=ui::Gpu())if(auto* b=ui::Bitmap(dc,j->w,j->hh,j->pixels)){
+                DropPreview(j->h);g_previews[j->h]=b;++g_previewRevision;changed=true;
+                Log(L"organizador: asynchronous preview %p %ux%u",j->h,j->w,j->hh);
+            }
+        }
+        it=g_jobs.erase(it);
+    }
+    return changed;
+}
 std::map<HWND, Vaga> g_vagas;                          // estacionadas
 struct Volta { POINT para; DWORD em; int tentativas; };
 std::map<HWND, Volta> g_voltando;                     // mandadas para casa, até chegarem
@@ -231,23 +332,38 @@ POINT VagaPara(const RECT& casa) {
     d.right = d.left + GetSystemMetrics(SM_CXVIRTUALSCREEN); d.bottom = d.top + GetSystemMetrics(SM_CYVIRTUALSCREEN);
     LONG W = casa.right - casa.left, H = casa.bottom - casa.top;
     HMONITOR mon = MonitorFromRect(&casa, MONITOR_DEFAULTTONEAREST);
-    POINT cand[4] = { { d.right + FOLGA, casa.top }, { d.left - W - FOLGA, casa.top }, { casa.left, d.bottom + FOLGA }, { casa.left, d.top - H - FOLGA } };
+    POINT cand[4] = { { casa.left, d.bottom + FOLGA }, { casa.left, d.top - H - FOLGA }, { d.right + FOLGA, casa.top }, { d.left - W - FOLGA, casa.top } };
     for (auto& p : cand) { RECT r{ p.x, p.y, p.x + W, p.y + H }; if (MonitorFromRect(&r, MONITOR_DEFAULTTONEAREST) == mon) return p; }
     return cand[0];
 }
 
 bool EstacionaUma(HWND h, HWND dono, RECT casa, POINT lugar) {
-    if (!SetWindowPos(h, nullptr, lugar.x, lugar.y, 0, 0, MOVER)) return false;
+    // Journal/mark before requesting an asynchronous move; window-limit
+    // hooks must recognize the intentional off-screen position immediately.
     g_vagas[h] = { casa, lugar, dono, Agora() };
+    Grava();
+    if (!SetWindowPos(h, nullptr, lugar.x, lugar.y, 0, 0, MOVER)){
+        g_vagas.erase(h);Grava();return false;
+    }
     return true;
 }
 
 bool Estaciona(HWND h) {
-    if (g_vagas.count(h) || !IsWindow(h) || IsIconic(h)) return false;
+    if (g_vagas.count(h) || g_unparkable.count(h) || !IsWindow(h) || IsIconic(h)) return false;
     RECT r; GetWindowRect(h, &r);
     if (IsRectEmpty(&r) || !NaTela(r)) return false;  // já fora: a vaga viraria a casa e ela nunca voltaria
     RECT casa = NaMesa(r);
     POINT lugar = VagaPara(casa);
+    if(!g_previews.count(h)){
+        CapturePreview(h);
+        if(g_jobs.count(h)){
+            auto [it,added]=g_pendingPark.emplace(h,Agora());
+            // First-time capture gets a bounded head start while the window
+            // is still on the monitor. The UI thread never waits for it.
+            if(Agora()-it->second<350)return false;
+        }
+    }
+    g_pendingPark.erase(h);
     if (!EstacionaUma(h, nullptr, casa, lugar)) return false;
     LONG dx = lugar.x - r.left, dy = lugar.y - r.top, sx = casa.left - r.left, sy = casa.top - r.top;
     for (HWND o : Possuidas(h)) {  // os diálogos (e a sombra que alguns apps desenham numa janela) vão junto
@@ -294,8 +410,8 @@ void Traz(const std::vector<HWND>& hs, HWND frente = nullptr) {
     Grava();
     if (frente) casa.insert(casa.begin(), frente);
     for (auto it = casa.rbegin(); it != casa.rend(); ++it) {  // de trás para a frente: a primeira termina por cima
-        UINT f = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW;
-        if (IsHungAppWindow(*it) || !SetWindowPos(*it, HWND_TOP, 0, 0, 0, 0, f)) SetWindowPos(*it, HWND_TOP, 0, 0, 0, 0, f | SWP_ASYNCWINDOWPOS);
+        UINT f = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOREDRAW | SWP_ASYNCWINDOWPOS;
+        SetWindowPos(*it, HWND_TOP, 0, 0, 0, 0, f);
     }
 }
 
@@ -305,7 +421,11 @@ void Persegue() {  // as mandadas para casa que não chegaram: de novo (até 3 v
     DWORD agora = Agora();
     for (auto it = g_voltando.begin(); it != g_voltando.end();) {
         HWND h = it->first; Volta& v = it->second;
-        if (!IsWindow(h) || g_vagas.count(h) || Chegou(h, v.para)) { it = g_voltando.erase(it); continue; }
+        if (!IsWindow(h) || g_vagas.count(h)) {it=g_voltando.erase(it);continue;}
+        if(Chegou(h,v.para)){
+            RedrawWindow(h,nullptr,nullptr,RDW_INVALIDATE|RDW_FRAME|RDW_ALLCHILDREN);
+            it=g_voltando.erase(it);continue;
+        }
         if (agora - v.em < 300) { ++it; continue; }
         if (v.tentativas < 3) { Log(L"organizador: janela %p não chegou em casa; de novo", h); Por(h, v.para, VOLTAR); v.em = agora; v.tentativas++; ++it; continue; }
         RECT r = Encaixa(Onde(h)); Por(h, { r.left, r.top }, VOLTAR);
@@ -315,22 +435,42 @@ void Persegue() {  // as mandadas para casa que não chegaram: de novo (até 3 v
 }
 
 // as estacionadas que voltaram sozinhas (o Windows reencaixa as maximizadas quando a área muda, ou o próprio app)
-std::vector<HWND> Fugidas() {
-    std::vector<HWND> fug; bool mudou = false;
-    for (auto it = g_vagas.begin(); it != g_vagas.end();) {
-        HWND h = it->first; Vaga& v = it->second;
-        if (!IsWindow(h)) { it = g_vagas.erase(it); mudou = true; continue; }
-        if (Agora() - v.em < 1000) { ++it; continue; }
-        RECT r; GetWindowRect(h, &r);
-        if ((r.left == v.lugar.x && r.top == v.lugar.y) || IsIconic(h)) { ++it; continue; }
-        if (QuaseFora(r)) { v.lugar = { r.left, r.top }; mudou = true; ++it; continue; }  // parou na borda: a vaga é ali
-        Log(L"organizador: janela %p voltou sozinha para a tela", h);
-        bool raiz = !v.dono;
-        it = g_vagas.erase(it); mudou = true;
-        if (raiz && NaTela(r)) fug.push_back(h);
+void Fugidas() {
+    bool mudou=false;
+    std::vector<HWND> failed;
+    for(auto it=g_vagas.begin();it!=g_vagas.end();){
+        HWND h=it->first; Vaga& v=it->second;
+        if(!IsWindow(h)){DropPreview(h);it=g_vagas.erase(it);mudou=true;continue;}
+        if(IsIconic(h)){++it;continue;}
+        RECT r=Onde(h);
+        if(!NaTela(r)){v.confirmed=true;++it;continue;}
+        if(Agora()-v.em<1000){++it;continue;}
+        if(!v.dono && DonoRaiz(GetForegroundWindow())==h){
+            // Let the foreground handler restore the entire app group.
+            ++it;continue;
+        }
+        RECT d{GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};
+        d.right=d.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);d.bottom=d.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        LONG width=r.right-r.left,height=r.bottom-r.top;
+        POINT p[4]={{v.casa.left,d.top-height-FOLGA},{d.left-width-FOLGA,v.casa.top},
+                    {d.right+FOLGA,v.casa.top},{v.casa.left,d.bottom+FOLGA}};
+        // Retain the original home and retry budget even if the entire
+        // window is clamped back on-screen. Never recapture/re-enrol it.
+        if(v.retries<4){
+            v.lugar=p[v.retries++];v.em=Agora();Por(h,v.lugar,MOVER);
+            Log(L"organizador: parking retry %p %u/4",h,v.retries);
+            mudou=true;++it;continue;
+        }
+        failed.push_back(v.dono?v.dono:h);
+        ++it;
     }
-    if (mudou) Grava();
-    return fug;
+    std::sort(failed.begin(),failed.end(),std::less<HWND>{});
+    failed.erase(std::unique(failed.begin(),failed.end()),failed.end());
+    for(HWND h:failed){
+        g_unparkable.insert(h);
+        if(Desestaciona(h)){Log(L"organizador: parking refused %p; restored group",h);mudou=true;}
+    }
+    if(mudou)Grava();
 }
 
 void TrazTodas() {  // desligar, sair: tudo em casa (e espera até 1 s elas chegarem)
@@ -433,12 +573,25 @@ bool NoPrincipal(const Jan& j) {  // estacionada: pelo monitor da casa
 }
 
 void Lista() {
-    g_jan.clear();
+    auto previous=std::move(g_jan);g_jan.clear();
     for (auto& j : Janelas()) if (NoPrincipal(j)) g_jan.push_back(j);
+    // Keep intentionally parked roots even when an application temporarily
+    // changes its visibility/style or DWM suppresses the off-screen frame.
+    for(auto& j:previous){
+        auto v=g_vagas.find(j.h);
+        if(v==g_vagas.end()||v->second.dono||!IsWindow(j.h)||IsIconic(j.h))continue;
+        DWORD pid=0,cloak=0;GetWindowThreadProcessId(j.h,&pid);
+        DwmGetWindowAttribute(j.h,DWMWA_CLOAKED,&cloak,sizeof(cloak));
+        if(pid!=j.pid||(cloak&2))continue; // another virtual desktop
+        if(std::none_of(g_jan.begin(),g_jan.end(),[&](const Jan& q){return q.h==j.h;})){
+            GetWindowRect(j.h,&j.r);j.frente=false;g_jan.push_back(j);
+        }
+    }
     DWORD agora = Agora();
     std::set<HWND> vivas;
     for (auto& j : g_jan) { vivas.insert(j.h); g_vista.emplace(j.h, agora); }
     for (auto it = g_vista.begin(); it != g_vista.end();) it = vivas.count(it->first) ? std::next(it) : g_vista.erase(it);
+    for(auto it=g_unparkable.begin();it!=g_unparkable.end();)it=IsWindow(*it)?std::next(it):g_unparkable.erase(it);
 }
 
 const Jan* AchaJan(HWND h) { for (auto& j : g_jan) if (j.h == h) return &j; return nullptr; }
@@ -469,6 +622,8 @@ void TrocaPalco(std::vector<std::wstring> prox, HWND foco, bool ativar) {
     Traz(entram);
     for (HWND h : saem) if (h != foco) Estaciona(h);
     Troca(prox);
+    for(auto& j:g_jan)if(NoPalco(j.app))g_pendingPark.erase(j.h);
+    FaixaCom(AppsPresentes());
     if (ativar && foco) { shell::LiberaFrente(); SetForegroundWindow(foco); }
     std::wstring nomes; for (auto& a : prox) { App* ap = nullptr; for (auto& j : g_jan) if (j.app == a) { ap = apps::OfWindow(j.h); break; } nomes += (nomes.empty() ? L"" : L", ") + (ap ? ap->name : a); }
     Log(L"organizador: no palco %ls (%zu saem, %zu entram, %zu estacionadas)", nomes.c_str(), saem.size(), entram.size(), g_vagas.size());
@@ -477,13 +632,10 @@ void TrocaPalco(std::vector<std::wstring> prox, HWND foco, bool ativar) {
 }
 
 void Atualiza() {  // refresh
-    if (!g_on || g_ocupado) return;
+    if (!g_on || g_ocupado || GetCapture()==g_strip || revelar::DesktopShown()) return;
     Persegue();
     Lista();
-    for (HWND h : Fugidas()) {  // voltou sozinha: se o app não está no palco, estaciona de novo
-        const Jan* j = AchaJan(h);
-        if (j && h != GetForegroundWindow() && !NoPalco(j->app)) Estaciona(h);
-    }
+    Fugidas();
     DWORD agora = Agora();
     std::set<std::wstring> visiveis;
     for (auto& j : g_jan) if (!Estacionada(j.h)) visiveis.insert(j.app);
@@ -514,7 +666,7 @@ void Atualiza() {  // refresh
 void AssentaFrente() {  // settleForeground
     HWND h = g_fgPendente;
     if (HWND fg = GetForegroundWindow(); h && fg && fg != h) h = g_fgPendente = fg;
-    if (!h || g_ocupado || !g_on) return;
+    if (!h || g_ocupado || !g_on || revelar::DesktopShown()) return;
     HWND raiz = DonoRaiz(h);
     Lista();
     const Jan* j = AchaJan(raiz);
@@ -524,6 +676,7 @@ void AssentaFrente() {  // settleForeground
         return;
     }
     g_fgPendente = nullptr;
+    SetTimer(g_strip,T_CAPTURE,300,nullptr);
     if (NoPalco(j->app)) {
         g_fechou.on = false;
         if (Estacionada(j->h)) { Traz({ j->h }); Pinta(); }
@@ -547,9 +700,9 @@ void CALLBACK NaFrente(HWINEVENTHOOK, DWORD, HWND h, LONG obj, LONG, DWORD, DWOR
 
 void CALLBACK NoObjeto(HWINEVENTHOOK, DWORD ev, HWND h, LONG obj, LONG, DWORD, DWORD) {
     if (!g_on || !g_strip || obj != OBJID_WINDOW || !h) return;
-    if (ev == EVENT_OBJECT_DESTROY || ev == EVENT_OBJECT_HIDE) {  // noteClosed
+    if (ev == EVENT_OBJECT_DESTROY) {  // noteClosed
         if (const Jan* j = AchaJan(h)) if (!Estacionada(h) && NoPalco(j->app)) g_fechou = { h, Agora(), true };
-    } else if (GetAncestor(h, GA_ROOT) != h) return;
+    } else if (GetAncestor(h, GA_ROOT) != h || shell::Nossa(h)) return;
     SetTimer(g_strip, T_LOGO, 120, nullptr);  // refreshSoon
 }
 
@@ -558,6 +711,7 @@ std::map<HWND, HTHUMBNAIL> g_thumbs;
 struct Tile { int grupo; HWND win; std::vector<App*> apps; D2D1_RECT_F thumb, icon; };
 std::vector<Tile> g_tiles;
 int g_hover = -1;
+int g_pressed=-1; POINT g_pressPoint{}; bool g_dragGroup=false;
 bool g_raised = false;  // trazida para a frente pela borda esquerda
 std::map<std::wstring, ID2D1Bitmap*> g_icons;
 
@@ -571,15 +725,27 @@ void PlaceStrip() {  // logo acima da mesa: abaixo de todas as janelas dos apps
     RECT wa = AreaPrincipal();
     int w = (int)std::lround(STRIP_W * Sc());
     HWND desk = nullptr;
-    for (HWND x = GetWindow(GetDesktopWindow(), GW_CHILD); x; x = GetWindow(x, GW_HWNDNEXT)) if (mesa::IsDeskWindow(x)) desk = x;
-    HWND after = desk ? GetWindow(desk, GW_HWNDPREV) : HWND_BOTTOM;
-    if (after == g_strip) after = nullptr;
-    SetWindowPos(g_strip, after ? after : HWND_BOTTOM, wa.left, wa.top, w, wa.bottom - wa.top, SWP_NOACTIVATE | SWP_SHOWWINDOW | (after ? 0 : SWP_NOZORDER));
+    // The first visible desktop in front-to-back order is the one that
+    // can obscure the strip. Progman may remain behind SequoiaMesa.
+    for(HWND x=GetTopWindow(nullptr);x;x=GetWindow(x,GW_HWNDNEXT)){
+        if(!IsWindowVisible(x)||!mesa::IsDeskWindow(x))continue;
+        RECT r{},overlap{};
+        if(GetWindowRect(x,&r)&&IntersectRect(&overlap,&r,&wa)){desk=x;break;}
+    }
+    HWND after=desk?GetWindow(desk,GW_HWNDPREV):HWND_BOTTOM;
+    if(desk&&(!after||(GetWindowLongPtrW(after,GWL_EXSTYLE)&WS_EX_TOPMOST)))after=HWND_TOP;
+    bool already=after==g_strip;
+    RECT current{};GetWindowRect(g_strip,&current);
+    bool same=current.left==wa.left&&current.top==wa.top&&current.right-current.left==w&&current.bottom==wa.bottom;
+    if(already&&same&&IsWindowVisible(g_strip))return;
+    SetWindowPos(g_strip, already?nullptr:after?after:HWND_BOTTOM,wa.left,wa.top,w,wa.bottom-wa.top,
+        SWP_NOACTIVATE|SWP_SHOWWINDOW|(already?SWP_NOZORDER:0));
 }
 
 void Pinta() {
     if (!g_strip || !g_on) return;
     float sc = Sc();
+    if(!g_raised)PlaceStrip();
     RECT wr; GetWindowRect(g_strip, &wr);
     int wpx = wr.right - wr.left, hpx = wr.bottom - wr.top;
     g_tiles.clear();
@@ -587,46 +753,75 @@ void Pinta() {
         Tile t{ gi, nullptr, {} };
         for (auto& a : g_grupos[gi])
             for (auto& j : g_jan) if (j.app == a) {  // a janela mais à frente de cada app do cartão
-                if (!t.win) t.win = j.h;
+                if (!t.win || (!g_previews.count(t.win)&&g_previews.count(j.h))) t.win = j.h;
                 if (App* ap = apps::OfWindow(j.h)) if (std::find(t.apps.begin(), t.apps.end(), ap) == t.apps.end()) t.apps.push_back(ap);
                 break;
             }
         if (t.win) g_tiles.push_back(t);
     }
-    float H = hpx / sc, total = g_tiles.size() * THUMB_H + (g_tiles.empty() ? 0 : (g_tiles.size() - 1) * GAP);
-    float y = std::max(16.f, (H - total) / 2);
-    for (auto& t : g_tiles) {
-        t.thumb = D2D1::RectF(LEFT + 22, y, LEFT + 22 + THUMB_W, y + THUMB_H);
-        t.icon = D2D1::RectF(LEFT, y + THUMB_H - ICON + 8, LEFT + ICON, y + THUMB_H + 8);
-        y += THUMB_H + GAP;
+    float H=hpx/sc,lo=18.f,hi=std::max(lo,H-66.f);
+    std::vector<std::pair<float,float>> free{{lo,hi}};
+    for(auto q:widgets::Areas()){
+        if(q.right<=wr.left||q.left>=wr.right)continue;
+        float a=(q.top-wr.top)/sc-12,b=(q.bottom-wr.top)/sc+12;
+        std::vector<std::pair<float,float>> next;
+        for(auto [l,r]:free){if(b<=l||a>=r)next.push_back({l,r});else{if(a>l)next.push_back({l,a});if(b<r)next.push_back({b,r});}}
+        free.swap(next);
     }
-    // miniaturas ao vivo (a janela estacionada continua viva fora da tela; o DWM desenha por cima da faixa)
-    std::map<HWND, HTHUMBNAIL> keep;
-    for (int i = 0; i < (int)g_tiles.size(); i++) {
-        auto& t = g_tiles[i];
-        HTHUMBNAIL th = nullptr;
-        auto f = g_thumbs.find(t.win);
-        if (f != g_thumbs.end()) { th = f->second; g_thumbs.erase(f); }
-        else if (FAILED(DwmRegisterThumbnail(g_strip, t.win, &th))) th = nullptr;
-        if (!th) continue;
-        SIZE src{}; DwmQueryThumbnailSourceSize(th, &src);
-        float bw = t.thumb.right - t.thumb.left, bh = t.thumb.bottom - t.thumb.top;
-        float k = src.cx > 0 && src.cy > 0 ? std::min(bw / src.cx, bh / src.cy) : 1;
-        float w = src.cx > 0 ? src.cx * k : bw, h = src.cy > 0 ? src.cy * k : bh;
-        float cx = t.thumb.left + bw / 2, cy = t.thumb.top + bh / 2;
-        float grow = i == g_hover ? 1.06f : 1.f;
-        w *= grow; h *= grow;
-        DWM_THUMBNAIL_PROPERTIES tp{};
-        tp.dwFlags = DWM_TNP_RECTDESTINATION | DWM_TNP_VISIBLE | DWM_TNP_OPACITY | DWM_TNP_SOURCECLIENTAREAONLY;
-        tp.rcDestination = { (LONG)std::lround((cx - w / 2) * sc), (LONG)std::lround((cy - h / 2) * sc), (LONG)std::lround((cx + w / 2) * sc), (LONG)std::lround((cy + h / 2) * sc) };
-        tp.fVisible = TRUE; tp.opacity = 255; tp.fSourceClientAreaOnly = FALSE;
-        DwmUpdateThumbnailProperties(th, &tp);
-        keep[t.win] = th;
+    if(!free.empty()){
+        auto best=*std::max_element(free.begin(),free.end(),[](auto a,auto b){return a.second-a.first<b.second-b.first;});
+        lo=best.first;hi=best.second;
     }
-    ClearThumbs();
-    g_thumbs = keep;
+    float n=(float)g_tiles.size(),gap=18.f;
+    float th=n?std::clamp((hi-lo-gap*std::max(0.f,n-1)-8)/n,36.f,THUMB_H):THUMB_H;
+    float tw=THUMB_W*th/THUMB_H,ic=ICON*std::min(1.f,th/THUMB_H+.12f);
+    float total=n*th+std::max(0.f,n-1)*gap;
+    float y=lo+std::max(0.f,(hi-lo-total)/2);
+    for(auto& t:g_tiles){
+        auto it=g_previews.find(t.win);
+        auto sz=it!=g_previews.end()?it->second->GetSize():D2D1::SizeF(1.8f,1.f);
+        // Apply horizontal foreshortening BEFORE fitting. Previously the
+        // unprojected width limited scale, making very wide, short cards.
+        float projected=sz.width*STAGE_YAW_WIDTH;
+        float k=std::min(tw/projected,th/sz.height);
+        float width=projected*k,height=sz.height*k;
+        float top=y+(th-height)*.5f;
+        t.thumb=D2D1::RectF(LEFT,top,LEFT+width,top+height);
+        // The icon overlaps the lower near corner, like the reference.
+        t.icon=D2D1::RectF(LEFT-ic*.30f,top+height-ic*.82f,LEFT+ic*.70f,top+height+ic*.18f);
+        y+=th+gap;
+    }
+    // Recompose only when content or geometry changes. A refresh timer must
+    // not repeatedly clear/present the same transparent swap chain.
+    for(auto it=g_previews.begin();it!=g_previews.end();){if(!IsWindow(it->first)){it->second->Release();it=g_previews.erase(it);++g_previewRevision;}else ++it;}
+    std::wstring key=std::to_wstring(wpx)+L":"+std::to_wstring(hpx)+L":"+std::to_wstring(sc)+L":"+std::to_wstring(g_previewRevision)+L":"+std::to_wstring(g_hover);
+    for(auto& t:g_tiles){
+        key+=L"|"+std::to_wstring((UINT_PTR)t.win)+L":"+std::to_wstring(t.thumb.left)+L":"+std::to_wstring(t.thumb.top)+L":"+std::to_wstring(t.thumb.right)+L":"+std::to_wstring(t.thumb.bottom);
+        for(auto* a:t.apps)key+=L":"+a->id;
+    }
+    if(g_s.swap&&key==g_lastPaint)return;
     ID2D1DeviceContext* dc = ui::GpuBegin(g_s, wpx, hpx, sc);
     if (!dc) return;
+    for(auto& t:g_tiles){
+        auto it=g_previews.find(t.win);
+        auto* b=it==g_previews.end()?nullptr:it->second;
+        float width=t.thumb.right-t.thumb.left,height=t.thumb.bottom-t.thumb.top;
+        float x=t.thumb.left,cy=(t.thumb.top+t.thumb.bottom)/2;
+        // The strip uses a shared vanishing point near its vertical centre:
+        // upper cards recede downwards, lower cards upwards. The fade is
+        // already baked into the projected premultiplied bitmap.
+        D2D1_RECT_F dst{x,cy-height/2,x+width,cy+height/2};
+        if(b){
+            // Far edge shares the same vanishing point as its vertical
+            // scale: the top card tips down, bottom card tips up.
+            float shift=std::clamp((H*.5f-cy)*(1.f-STAGE_FAR_SCALE),-height*.22f,height*.22f);
+            dc->SetTransform(D2D1::Matrix3x2F(1,shift/width,0,1,0,-x*shift/width));
+            dc->DrawBitmap(b,dst,1.f,D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC);
+            dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        }
+        // If an application blocks capture, its icon remains selectable. Do not
+        // masquerade a blank rectangle as a working application preview.
+    }
     for (auto& t : g_tiles) {  // os ícones dos apps do cartão, um ao lado do outro no canto de baixo
         float dx = 0;
         for (App* a : t.apps) {
@@ -637,14 +832,23 @@ void Pinta() {
         }
     }
     ui::GpuEnd(g_s);
-    if (!g_raised) PlaceStrip();
+    size_t visiblePreviews=0;
+    for(const auto& t:g_tiles)if(g_previews.count(t.win))++visiblePreviews;
+    Log(L"organizador: strip draw %zu cards, %zu previews",g_tiles.size(),visiblePreviews);
+    g_lastPaint=std::move(key);
 }
 
 int HitTile(LPARAM l) {
     float sc = Sc(), x = (short)LOWORD(l) / sc, y = (short)HIWORD(l) / sc;
     for (int i = 0; i < (int)g_tiles.size(); i++) {
         auto& t = g_tiles[i];
-        if ((x >= t.thumb.left && x < t.thumb.right && y >= t.thumb.top && y < t.thumb.bottom) ||
+        float width=t.thumb.right-t.thumb.left,height=t.thumb.bottom-t.thumb.top;
+        RECT wr{};GetWindowRect(g_strip,&wr);
+        float cy=(t.thumb.top+t.thumb.bottom)*.5f,H=(wr.bottom-wr.top)/sc;
+        float shift=std::clamp((H*.5f-cy)*(1.f-STAGE_FAR_SCALE),-height*.22f,height*.22f);
+        float u=width>0?std::clamp((x-t.thumb.left)/width,0.f,1.f):0.f;
+        float h=height*(1.f-(1.f-STAGE_FAR_SCALE)*u)*.5f;
+        if ((x >= t.thumb.left && x < t.thumb.right && y >= cy+u*shift-h && y < cy+u*shift+h) ||
             (x >= t.icon.left && x < t.icon.right + ICON && y >= t.icon.top && y < t.icon.bottom)) return i;
     }
     return -1;
@@ -655,6 +859,28 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_TIMER:
         if (w == T_FRENTE) { KillTimer(h, T_FRENTE); AssentaFrente(); }
         else if (w == T_LOGO) { KillTimer(h, T_LOGO); if (!g_raised) Atualiza(); }
+        else if (w == T_RESULT) {
+            bool changed=CollectPreviews();
+            if(!revelar::DesktopShown()&&!g_ocupado){
+                std::vector<HWND> ready;
+                for(auto it=g_pendingPark.begin();it!=g_pendingPark.end();){
+                    const Jan* j=AchaJan(it->first);
+                    if(!j||!IsWindow(it->first)||NoPalco(j->app)||it->first==DonoRaiz(GetForegroundWindow())){
+                        it=g_pendingPark.erase(it);continue;
+                    }
+                    if(!g_jobs.count(it->first)||Agora()-it->second>=350)ready.push_back(it->first);
+                    ++it;
+                }
+                for(HWND w:ready){Estaciona(w);g_pendingPark.erase(w);changed=true;}
+            }
+            if(changed)Pinta();
+        }
+        else if (w == T_CAPTURE) {
+            KillTimer(h,T_CAPTURE);
+            HWND fg=DonoRaiz(GetForegroundWindow());Jan j{};
+            if(!g_ocupado && !Estacionada(fg) && JanelaDeApp(fg,fg,&j) && NoPalco(j.app))
+                CapturePreview(fg);
+        }
         else if (w == T_REFRESH) { if (!g_raised) Atualiza(); else Persegue(); }
         else if (w == T_BORDA) {  // janela grande por cima da faixa: o mouse na borda esquerda traz a faixa (como no Mac)
             POINT c; GetCursorPos(&c);
@@ -669,7 +895,14 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return HitTile(MAKELPARAM(p.x, p.y)) >= 0 ? HTCLIENT : HTTRANSPARENT;
     }
     case WM_MOUSEACTIVATE: return MA_NOACTIVATE;
+    case WM_LBUTTONDOWN:{
+        g_pressed=HitTile(l);g_dragGroup=false;
+        if(g_pressed>=0){GetCursorPos(&g_pressPoint);SetCapture(h);}
+        return 0;
+    }
+    case WM_CAPTURECHANGED:g_pressed=-1;g_dragGroup=false;return 0;
     case WM_MOUSEMOVE: {
+        if(g_pressed>=0){POINT p;GetCursorPos(&p);g_dragGroup=g_dragGroup||std::abs(p.x-g_pressPoint.x)>8||std::abs(p.y-g_pressPoint.y)>8;}
         int i = HitTile(l);
         if (i != g_hover) { g_hover = i; Pinta(); }
         TRACKMOUSEEVENT t{ sizeof(t), TME_LEAVE, h, 0 }; TrackMouseEvent(&t);
@@ -677,12 +910,15 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
     case WM_MOUSELEAVE: if (g_hover >= 0) { g_hover = -1; Pinta(); } return 0;
     case WM_LBUTTONUP: {  // o cartão vai para o palco; com Shift, entra junto com o que já está (dois apps lado a lado)
-        int i = HitTile(l);
-        if (i < 0 || g_tiles[i].grupo >= (int)g_grupos.size()) return 0;
+        int i=HitTile(l);
+        bool add=false;
+        if(g_dragGroup&&g_pressed>=0){POINT p;GetCursorPos(&p);RECT sr{};GetWindowRect(h,&sr);add=p.x>sr.right&&([&]{RECT wa=AreaPrincipal();return PtInRect(&wa,p);})();i=add?g_pressed:-1;}
+        g_pressed=-1;g_dragGroup=false;if(GetCapture()==h)ReleaseCapture();
+        if (i < 0 || i >= (int)g_tiles.size() || g_tiles[i].grupo >= (int)g_grupos.size()) return 0;
         Grupo g = g_grupos[g_tiles[i].grupo];
         std::vector<std::wstring> prox = g;
-        if (w & MK_SHIFT) { prox = g_palco; for (auto& a : g) if (!NoPalco(a)) prox.push_back(a); }
-        g_raised = false;
+        if (add || (w & MK_SHIFT)) { prox = g_palco; for (auto& a : g) if (!NoPalco(a)) prox.push_back(a); }
+        if(g_raised){g_raised=false;SetWindowPos(h,HWND_NOTOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);}
         TrocaPalco(prox, g_tiles[i].win, true);
         return 0;
     }
@@ -698,21 +934,24 @@ void TurnOn() {
     RegisterClassW(&wc);
     g_strip = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, wc.lpszClassName, L"", WS_POPUP, 0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     if (!g_strip) return;
-    g_s.hwnd = g_strip;
+    g_s.hwnd = g_strip;g_lastPaint.clear();
     apps::ours.push_back(g_strip);
     g_on = true;
-    g_palco.clear(); g_grupos.clear(); g_recentes.clear(); g_acima.clear(); g_vista.clear(); g_raised = false;
+    g_palco.clear(); g_grupos.clear(); g_recentes.clear(); g_acima.clear(); g_vista.clear(); g_unparkable.clear(); g_raised = false;
     // o palco começa com o app da frente (Init); os outros vão para a faixa no primeiro refresh
     Lista();
     if (const Jan* j = AchaJan(DonoRaiz(GetForegroundWindow()))) g_palco = { j->app };
+    else if(!g_jan.empty()) g_palco={g_jan.front().app};
     g_trocouEm = 0;
     for (auto& [h, t] : g_vista) t = 0;  // as que já estavam abertas podem ir para a faixa já
     g_hookFrente = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, NaFrente, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     g_hookObj = SetWinEventHook(EVENT_OBJECT_DESTROY, EVENT_OBJECT_HIDE, nullptr, NoObjeto, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
     SetTimer(g_strip, T_REFRESH, 1500, nullptr);
+    SetTimer(g_strip,T_RESULT,60,nullptr);
     SetTimer(g_strip, T_BORDA, 100, nullptr);
     Log(L"organizador: ligado (motor do stage-manager-for-windows: janelas estacionadas fora da tela)");
     Atualiza();
+    SetTimer(g_strip,T_CAPTURE,300,nullptr);
 }
 
 void TurnOff() {
@@ -720,21 +959,25 @@ void TurnOff() {
     g_on = false;
     if (g_hookFrente) { UnhookWinEvent(g_hookFrente); g_hookFrente = nullptr; }
     if (g_hookObj) { UnhookWinEvent(g_hookObj); g_hookObj = nullptr; }
-    ClearThumbs();
+    ClearThumbs();g_jobs.clear();g_captureAt.clear();g_pendingPark.clear();
+    for(auto& [h,b]:g_previews)if(b)b->Release();g_previews.clear();
     for (auto& [id, b] : g_icons) if (b) b->Release();
     g_icons.clear();
     ui::GpuFree(g_s);
     if (g_strip) { apps::ours.erase(std::remove(apps::ours.begin(), apps::ours.end(), g_strip), apps::ours.end()); DestroyWindow(g_strip); g_strip = nullptr; }
     size_t n = g_vagas.size();
     TrazTodas();  // todas as estacionadas em casa, atrás da da frente
-    g_palco.clear(); g_grupos.clear(); g_recentes.clear(); g_tiles.clear(); g_jan.clear();
+    g_palco.clear(); g_grupos.clear(); g_recentes.clear(); g_tiles.clear(); g_jan.clear();g_lastPaint.clear();
     Log(L"organizador: desligado (%zu janelas de volta)", n);
 }
 
 }  // namespace
 
 bool palco::On() { return g_on; }
-void palco::Sync() { if (shell::Setting(L"organizador", L"0") == L"1") TurnOn(); else TurnOff(); }
+void palco::Sync() {
+    if (shell::Setting(L"organizador", L"0") == L"1") TurnOn(); else TurnOff();
+    mesa::StageVisibilityChanged();widgets::StageVisibilityChanged();
+}
 void palco::Toggle() { shell::SetSetting(L"organizador", g_on ? L"0" : L"1"); Sync(); }
 void palco::Stop() { TurnOff(); }
 bool palco::Estacionada(HWND h) { return g_vagas.count(h) != 0; }

@@ -305,7 +305,8 @@ GlassHost g_hostPanel, g_hostBanner, *g_host = &g_hostPanel;
 bool g_hasGlass;
 // issue #51: com o Liquid Glass de verdade (vidro real, com refração) o painel usa o mesmo vidro da Central de Controle
 // (backdrop::SetPieces): cada cartão é uma peça com a lente dela. Sem ele, o fosco de antes (GlassHost).
-bool g_real;
+bool g_real; // shared backdrop attached, including its automatic frosted fallback
+bool g_bannerGlass;
 std::vector<backdrop::Piece> g_pecas;
 D2D1_COLOR_F g_pecaTinta = D2D1::ColorF(0.13f, 0.13f, 0.14f, 0.5f);  // a tinta dos cartões (vem do GlassRect)
 
@@ -341,7 +342,6 @@ void GlassRect(D2D1_RECT_F r, float radius, D2D1_COLOR_F tint, float alpha, floa
         if (r.bottom - r.top > 2 && alpha > 0.05f) { if (g_pecas.empty()) g_pecaTinta = tint; g_pecas.push_back({ r, radius }); }
         return;
     }
-    if (!g_hasGlass) return;
     if (!g_host->root) return;
     if (g_host->used == g_host->pool.size()) {
         Glass g;
@@ -383,11 +383,11 @@ void GlassRect(D2D1_RECT_F r, float radius, D2D1_COLOR_F tint, float alpha, floa
 void GlassEnd() {
     if (g_real && g_host == &g_hostPanel) {
         RECT wr; GetClientRect(g_back, &wr);
-        backdrop::SetPieces(g_back, (float)(wr.right - wr.left), (float)(wr.bottom - wr.top), g_pecas, g_pecaTinta);
+        backdrop::SetPieces(g_back, (float)(wr.right - wr.left), (float)(wr.bottom - wr.top), g_pecas, g_pecaTinta, liquid::Golden() ? 3.5f : 5.f);
         g_pecas.clear();
         return;
     }
-    if (!g_hasGlass) return;
+    if (!g_host->root) return;
     for (size_t i = g_host->used; i < g_host->pool.size(); i++) g_host->pool[i].outer.IsVisible(false);
 }
 
@@ -1069,6 +1069,15 @@ void Paint() {
     ID2D1SolidColorBrush* br = nullptr;
     dc->CreateSolidColorBrush(p.text, &br);
     float ox = PAD_L + g_slide * COL_W, oy = -g_scroll;  // deslocamento (pt) do conteúdo na janela
+    if (backdrop::Liquid() && !g_real) {
+        if(g_hostPanel.target) { try { g_hostPanel.target.Root(nullptr); } catch(...) {} }
+        g_hostPanel=GlassHost{}; g_hasGlass=false;
+        g_real=backdrop::Attach(g_back);
+        if(!g_real)g_hasGlass=GlassInit(g_back,g_hostPanel);
+    } else if(!backdrop::Liquid() && g_real) {
+        backdrop::Detach(g_back);g_real=false;
+        g_hasGlass=GlassInit(g_back,g_hostPanel);
+    }
     g_host = &g_hostPanel;
     g_host->used = 0;
     g_hits.clear();
@@ -1103,7 +1112,7 @@ void Paint() {
         case K_CARD:
             if (!g || e.note < 0 || e.note >= (int)g->notes.size()) break;
             if (!leo) GlassRect(px, CardR() * sc, p.tint, alpha);
-            if (!g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+            if (!g_real && !g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
             DrawCard(dc, br, p, *g, g->notes[e.note], r, e.key);
             g_hits.push_back({ r, e.act, e.group, e.note, -1, e.key });
             break;
@@ -1111,7 +1120,7 @@ void Paint() {
             D2D1_COLOR_F t = p.tint; t.a *= e.layer == 1 ? 0.85f : 0.7f;
             if (leo) { smoke(r, 8, e.layer == 1 ? 0.62f : 0.48f); g_hits.push_back({ D2D1::RectF(r.left, cut, r.right, r.bottom), e.act, e.group, 0, -1, L"n:" + std::to_wstring(g ? g->notes[0].id : 0) }); break; }
             GlassRect(px, CardR() * sc, t, alpha * (e.layer == 1 ? 0.9f : 0.75f), std::max(0.f, cut * sc));
-            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.9f, 0.9f, 0.91f, 0.9f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+            if (!g_real && !g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.9f, 0.9f, 0.91f, 0.9f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
             Border(dc, br, p, r, CardR());
             g_hits.push_back({ D2D1::RectF(r.left, cut, r.right, r.bottom), e.act, e.group, 0, -1, L"n:" + std::to_wstring(g ? g->notes[0].id : 0) });
             break;
@@ -1133,7 +1142,7 @@ void Paint() {
             }
             GlassRect(px, rad * sc, p.tintPill, alpha);
             if (hv) { br->SetColor(p.chip); dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), br); }
-            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.9f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), br); }
+            if (!g_real && !g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.9f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, rad, rad), br); }
             Border(dc, br, p, r, rad);
             Text(dc, br, e.text, g_tfPill, r, p.text, DWRITE_TEXT_ALIGNMENT_CENTER);
             g_hits.push_back({ r, e.act, e.group, -1, -1, e.key });
@@ -1143,7 +1152,7 @@ void Paint() {
             float rad = (r.right - r.left) / 2;
             if (leo) smoke(r, rad, 0.70f);
             else GlassRect(px, rad * sc, p.tintPill, alpha);
-            if (!g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.9f)); dc->FillEllipse(D2D1::Ellipse({ (r.left + r.right) / 2, (r.top + r.bottom) / 2 }, rad, rad), br); }
+            if (!g_real && !g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.2f, 0.2f, 0.21f, 0.9f) : D2D1::ColorF(0.92f, 0.92f, 0.93f, 0.9f)); dc->FillEllipse(D2D1::Ellipse({ (r.left + r.right) / 2, (r.top + r.bottom) / 2 }, rad, rad), br); }
             DrawCircleButton(dc, br, p, r, e.act == A_SETTINGS, g_hover == e.key);
             g_hits.push_back({ r, e.act, e.group, -1, -1, e.key });
             break;
@@ -1152,7 +1161,7 @@ void Paint() {
             if (e.widget < 0 || e.widget >= (int)g_widgets.size()) break;
             if (!leo) {  // Leopard: o widget do Dashboard desenha a própria forma, sem placa
             GlassRect(px, WidgetR() * sc, p.tint, alpha);
-            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, WidgetR(), WidgetR()), br); }
+            if (!g_real && !g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, WidgetR(), WidgetR()), br); }
             Border(dc, br, p, r, WidgetR());
             }
             D2D1_MATRIX_3X2_F old; dc->GetTransform(&old);
@@ -1170,7 +1179,7 @@ void Paint() {
         case K_EMPTY: {
             if (leo) smoke(r, 8, 0.75f);
             else GlassRect(px, CardR() * sc, p.tint, alpha);
-            if (!g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+            if (!g_real && !g_hasGlass && !leo) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.96f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.96f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
             if (!leo) Border(dc, br, p, r, CardR());
             br->SetColor(p.text2);
             float cx = (r.left + r.right) / 2;
@@ -1614,7 +1623,7 @@ void BannerPaint() {
         if (r.left >= COL_W) continue;  // fora da tela (entrando ou terminando de sair)
         if (!liquid::Leopard()) {  // Leopard: o balão do Growl é desenhado pelo DrawCard (sem o vidro)
             GlassRect(D2D1::RectF(r.left * sc, r.top * sc, r.right * sc, r.bottom * sc), CardR() * sc, p.tint, 1);
-            if (!g_hasGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.97f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.97f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
+            if (!g_bannerGlass) { br->SetColor(dark ? D2D1::ColorF(0.17f, 0.17f, 0.18f, 0.97f) : D2D1::ColorF(0.95f, 0.95f, 0.96f, 0.97f)); dc->FillRoundedRectangle(D2D1::RoundedRect(r, CardR(), CardR()), br); }
         }
         Group g{ b.n.aumid, b.n.app, {} };
         DrawCard(dc, br, p, g, b.n, r, L"banner:" + std::to_wstring(b.n.id));
@@ -1919,7 +1928,7 @@ bool notificacoes::Create(HINSTANCE hi) {
     g_back = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, bc.lpszClassName, L"", WS_POPUP,
                              0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     if (!g_wnd || !g_back) return false;
-    g_real = backdrop::Liquid() && backdrop::Real() && backdrop::Attach(g_back);  // issue #51
+    g_real = backdrop::Liquid() && backdrop::Attach(g_back);  // issue #51
     if (!g_real) g_hasGlass = GlassInit(g_back, g_hostPanel);
     Log(L"notificações: vidro %ls", g_real ? L"real (Liquid Glass, como a Central)" : L"fosco");
     DWORD corner = 1; DwmSetWindowAttribute(g_back, 33, &corner, sizeof(corner));
@@ -1944,7 +1953,7 @@ bool notificacoes::Create(HINSTANCE hi) {
     g_bback = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_NOREDIRECTIONBITMAP, bc.lpszClassName, L"", WS_POPUP,
                               0, 0, 10, 10, nullptr, nullptr, hi, nullptr);
     if (g_bwnd && g_bback) {
-        if (g_hasGlass) GlassInit(g_bback, g_hostBanner);
+        g_bannerGlass = GlassInit(g_bback, g_hostBanner);
         DwmSetWindowAttribute(g_bback, 33, &corner, sizeof(corner));
         DwmSetWindowAttribute(g_bback, 34, &none, sizeof(none));
         apps::ours.push_back(g_bwnd);

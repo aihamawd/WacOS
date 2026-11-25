@@ -5,6 +5,8 @@
 // o índice de arquivos próprio (indice.cpp, numa thread), uma calculadora e "Pesquisar na Web".
 // Teclas: ↑/↓ (e ←/→ nas miniaturas) escolhem, Enter abre, Ctrl+Enter mostra no Arquivos, Esc apaga/fecha.
 #include "shell.h"
+#include "../comum/mackeys-local.h"
+#include "../comum/iconnorm.h"
 #include <condition_variable>
 #include <deque>
 #include "../comum/simbolos.h"
@@ -933,6 +935,9 @@ void LoadIcon(const Result& copy, const std::wstring& key, int px) {
             ok = ui::ShellImage(copy.target, px, got.w, got.h, got.px, copy.kind != K_IMAGE);
         }
         {
+            if(ok&&copy.kind==K_APP&&!liquid::Leopard()){
+                if(iconnorm::Normalize(got.w,got.h,got.px,liquid::Golden()||ui::Dark(),false,128))got.lowres=false;
+            }
             std::lock_guard<std::mutex> l(g_iconMu);
             auto& ic = g_icons[key];
             ic.loading = false;
@@ -964,7 +969,7 @@ ID2D1Bitmap* IconFor(ID2D1RenderTarget* rt, const Result& r) {
         if (now - g_uploadFrame > 8) { g_uploadFrame = now; g_uploads = 0; }
         if (g_uploads >= 3) { if (g_wnd) PostMessageW(g_wnd, WM_SP_ICON, 0, 0); return nullptr; }  // pede outro quadro
         g_uploads++;
-        if (r.kind == K_APP) { dock::Cela(ic.w, ic.h, ic.px); std::wstring st = ui::IconStyle(); if (st != L"padrao") ui::StyleIcon(ic.w, ic.h, ic.px, st); }  // issue #45: o quadrado cinza também  // Tahoe: Escuro/Transparente/Tingido também aqui
+        if (r.kind == K_APP) { std::wstring st = ui::IconStyle(); if (st != L"padrao") ui::StyleIcon(ic.w, ic.h, ic.px, st); }  // issue #45: o quadrado cinza também  // Tahoe: Escuro/Transparente/Tingido também aqui
         ic.bmp = ui::Bitmap(rt, ic.w, ic.h, ic.px); ic.px.clear(); ic.px.shrink_to_fit();
     }
     return ic.bmp;
@@ -1874,7 +1879,7 @@ void Paint() {
         Text(dc, ModeName(g_mode), tfF, field, br, pf.place);
         if (g_mode >= 1 && g_mode <= 3 && !gg) {  // o atalho do modo, à direita (o "⌘1" do Mac; aqui Ctrl+1); macOS 27: sem
             static IDWriteTextFormat* tfKey = ui::Format(13, DWRITE_FONT_WEIGHT_MEDIUM, false, DWRITE_TEXT_ALIGNMENT_TRAILING);
-            wchar_t k[16]; swprintf_s(k, L"Ctrl %d", g_mode);
+            wchar_t k[16]; swprintf_s(k, L"\u2318%d", g_mode);
             float right = gg ? fpw - 56 : (ModePanel() && g_mode == 1) ? W - 60 : fpw - 20;  // Golden Gate: a 38 da borda (o desenho vai 18 para a direita)
             if (tfKey) Text(dc, k, tfKey, D2D1::RectF(right - 90, 0, right, FIELD_H), br, pf.place);
         }
@@ -1985,7 +1990,7 @@ void Paint() {
                 br->SetColor(p.text);
                 simbolo::Draw(dc, syms[row.sect], D2D1::RectF(ix - 12, cy - 11, ix + 12, cy + 11), br);
                 Text(dc, Tr(names[row.sect]), tfM, D2D1::RectF(r.left + 58, r.top, r.right - 90, r.bottom), br, p.text);
-                wchar_t k[16]; swprintf_s(k, L"Ctrl %d", row.sect + 1);
+                wchar_t k[16]; swprintf_s(k, L"\u2318%d", row.sect + 1);
                 if (tfK) Text(dc, k, tfK, D2D1::RectF(r.right - 140, r.top, r.right - 28, r.bottom), br, p.text2);
                 continue;
             }
@@ -2586,6 +2591,7 @@ void AppsMenu(HWND h, LPARAM l) {
 }
 
 LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if(m==localkeys::Message()){if(localkeys::Accept(2,(UINT)w,false,false))return Proc(h,WM_KEYDOWN,w,0x574d5031);return 0;}
     if (m == WM_INITMENUPOPUP || m == WM_DRAWITEM || m == WM_MEASUREITEM || m == WM_MENUCHAR) {  // submenus das extensões (Abrir com, Enviar para)
         LRESULT res = 0;
         if (ctxmenu::ForwardOwnerMsg(m, w, l, &res)) return res;
@@ -2683,7 +2689,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
     case WM_KEYDOWN: {
-        bool ctrl = GetKeyState(VK_CONTROL) < 0;
+        bool ctrl = l==0x574d5031 || GetKeyState(VK_CONTROL) < 0;
         switch (w) {
         case VK_ESCAPE:
             if (g_edit) { EndEdit(); return 0; }
@@ -2946,7 +2952,7 @@ LRESULT CALLBACK Proc(HWND h, UINT m, WPARAM w, LPARAM l) {
         // "Mostrar no Finder" (abrir o local do arquivo), como no menu do Spotlight do Mac
         bool onDisk = path.find(L":\\") != std::wstring::npos;
         std::vector<ctxmenu::Item> extra;
-        if (onDisk) extra.push_back({ Tr(L"Mostrar no Finder"), 1, false, false, false, L"Ctrl+Enter", {}, 0xE838 });
+        if (onDisk) extra.push_back({ Tr(L"Mostrar no Finder"), 1, false, false, false, L"\u2318Return", {}, 0xE838 });
         if (r.kind == K_APP && g_mode == 1) extra.push_back({ Tr(L"Ocultar do Launchpad"), 2, false, false, false, L"", {}, 0xED1A });  // painel Apps
         if (!extra.empty()) ctxmenu::ExtraNext(extra);
         auto res = ctxmenu::Show(h, sp, folder, { path }, GetKeyState(VK_SHIFT) < 0);
